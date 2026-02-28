@@ -1471,7 +1471,7 @@ export const UI = () => {
   return (
     <>
       <RoomTransitionOverlay transition={roomTransition} roomLabel={toRoomLabel} />
-      {/* Online Count Badge + Coins (top-right) */}
+      {/* Online Count Badge (top-right) */}
       {roomID && (
         <div className="fixed top-2 right-3 sm:top-3 sm:right-4 z-[15] flex flex-col items-end gap-1.5">
           <div className="bg-white/90 backdrop-blur-sm border border-gray-200 rounded-full px-3 py-1.5 flex items-center gap-2 shadow-sm">
