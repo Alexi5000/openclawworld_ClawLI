@@ -7,7 +7,6 @@ import {
   dmUnreadCountsAtom,
   dmPeersAtom,
   dmInboxOpenAtom,
-  coinsAtom,
 } from "./SocketManager";
 import soundManager from "../audio/SoundManager";
 
@@ -20,10 +19,7 @@ const DirectMessagePanel = () => {
   const [dmUnreadCounts, setDmUnreadCounts] = useAtom(dmUnreadCountsAtom);
   const [dmPeers, setDmPeers] = useAtom(dmPeersAtom);
   const [inboxOpen, setInboxOpen] = useAtom(dmInboxOpenAtom);
-  const [coins] = useAtom(coinsAtom);
-  const [activeTab, setActiveTab] = useState("chat");
   const [message, setMessage] = useState("");
-  const [shopItems, setShopItems] = useState([]);
   const messagesEndRef = useRef(null);
 
   const messages = target ? (directMessages[target.id] || []) : [];
@@ -71,28 +67,7 @@ const DirectMessagePanel = () => {
       if (!prev[target.id]) return prev;
       return { ...prev, [target.id]: 0 };
     });
-    setActiveTab("chat");
   }, [target?.id]);
-
-  // Fetch shop when shop tab is opened
-  useEffect(() => {
-    if (!target || activeTab !== "shop") return;
-    socket.emit("getBotShop", target.id);
-    const handler = (data) => {
-      if (data.botId === target.id) setShopItems(data.items || []);
-    };
-    socket.on("botShopInventory", handler);
-    return () => socket.off("botShopInventory", handler);
-  }, [target?.id, activeTab]);
-
-  useEffect(() => {
-    const handler = (event) => {
-      const nextTab = event?.detail;
-      if (typeof nextTab === "string") setActiveTab(nextTab);
-    };
-    window.addEventListener("dm-panel-tab", handler);
-    return () => window.removeEventListener("dm-panel-tab", handler);
-  }, []);
 
   const sendMessage = () => {
     if (!message.trim() || !target) return;
@@ -105,13 +80,7 @@ const DirectMessagePanel = () => {
     soundManager.play("chat_send");
   };
 
-  const buyItem = (itemName) => {
-    if (!target) return;
-    socket.emit("buyFromBot", { botId: target.id, itemName });
-  };
-
   const isOpen = !!(target || inboxOpen);
-  const tabs = target?.isBot ? ["chat", "shop"] : ["chat"];
 
   return (
     <AnimatePresence>
@@ -148,26 +117,7 @@ const DirectMessagePanel = () => {
           </button>
         </div>
 
-        {/* Tabs */}
-        {target && (
-          <div className="flex border-b border-gray-100">
-            {tabs.map((tab) => (
-              <button
-                key={tab}
-                onClick={() => { soundManager.play("tab_switch"); setActiveTab(tab); }}
-                className={`flex-1 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors ${
-                  activeTab === tab
-                    ? "text-slate-800 border-b-2 border-slate-800"
-                    : "text-gray-400 hover:text-gray-600"
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Tab Content */}
+        {/* Content */}
         <div className="flex-1 overflow-y-auto">
           {/* Chat Tab */}
           {!target && (
@@ -210,7 +160,7 @@ const DirectMessagePanel = () => {
               ))}
             </div>
           )}
-          {target && activeTab === "chat" && (
+          {target && (
             <div className="p-3 space-y-2">
               {messages.length === 0 && (
                 <p className="text-center text-gray-400 text-xs mt-8">Start a conversation with {target.name}</p>
@@ -238,44 +188,10 @@ const DirectMessagePanel = () => {
             </div>
           )}
 
-          {/* Shop Tab */}
-          {target && activeTab === "shop" && (
-            <div className="p-3 space-y-2">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-gray-400 uppercase">Your balance</p>
-                <span className="text-sm font-bold text-amber-600">{coins} coins</span>
-              </div>
-              {shopItems.length === 0 && (
-                <p className="text-center text-gray-400 text-xs mt-8">This bot has no shop items</p>
-              )}
-              {shopItems.map((shopItem, i) => {
-                const canAfford = coins >= shopItem.price;
-                return (
-                  <div key={i} className="flex items-center justify-between bg-gray-50 rounded-xl p-3 border border-gray-100">
-                    <div>
-                      <p className="font-semibold text-gray-900 text-sm">{shopItem.item}</p>
-                      <p className="text-xs text-amber-600 font-semibold">{shopItem.price} coins</p>
-                    </div>
-                    <button
-                      onClick={() => buyItem(shopItem.item)}
-                      disabled={!canAfford}
-                      className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${
-                        canAfford
-                          ? "bg-slate-800 text-white hover:bg-slate-900"
-                          : "bg-gray-200 text-gray-400 cursor-not-allowed"
-                      }`}
-                    >
-                      {canAfford ? "Buy" : "Not enough"}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
 
-        {/* Chat input (only visible on chat tab) */}
-        {target && activeTab === "chat" && (
+        {/* Chat input */}
+        {target && (
           <div className="p-2 border-t border-gray-100">
             <div className="flex gap-2">
               <input

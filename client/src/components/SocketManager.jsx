@@ -37,12 +37,10 @@ const setSessionToken = (token) => {
 
 export const userIdAtom = atom(ensureUserId());
 export const sessionTokenAtom = atom(getSessionToken());
-export const coinsAtom = atom(100);
 export const directMessagesAtom = atom({}); // keyed by peerId -> message array
 export const dmUnreadCountsAtom = atom({}); // keyed by peerId -> unread count
 export const dmPeersAtom = atom({}); // keyed by peerId -> { name, isBot }
 export const dmInboxOpenAtom = atom(false);
-export const walletOpenAtom = atom(false);
 export const questNotificationsAtom = atom([]);
 export const roomHasPasswordAtom = atom(true);
 export const bondsAtom = atom({}); // keyed by peerName -> { score, level, levelLabel, nextThreshold, maxLevel }
@@ -72,6 +70,7 @@ export const avatarDispatch = {
   playerSit: new Map(),     // id -> handler(value)
   playerUnsit: new Map(),   // id -> handler(value)
   bondEmotePlay: new Map(), // id -> handler(value)
+  emotePlay: new Map(),     // id -> handler(value)
   playerThinking: new Map(), // id -> handler(value) — bot thinking indicator
 };
 
@@ -126,7 +125,6 @@ export const SocketManager = () => {
   const [userId, setUserId] = useAtom(userIdAtom);
   const [sessionToken, setSessionTokenState] = useAtom(sessionTokenAtom);
   const [avatarUrl] = useAtom(avatarUrlAtom);
-  const [_coins, setCoins] = useAtom(coinsAtom);
   const [_directMessages, setDirectMessages] = useAtom(directMessagesAtom);
   const [_dmUnreadCounts, setDmUnreadCounts] = useAtom(dmUnreadCountsAtom);
   const [_dmPeers, setDmPeers] = useAtom(dmPeersAtom);
@@ -227,7 +225,6 @@ export const SocketManager = () => {
       }
       setCharacters(value.characters);
       setChatMessages([]);
-      if (value.coins !== undefined) setCoins(value.coins);
       setRoomHasPassword(value.hasPassword !== false);
       // Delay clearing the transition overlay to ensure minimum display time
       // This gives the 3D scene time to render before the overlay fades out
@@ -354,21 +351,6 @@ export const SocketManager = () => {
       addActivity("wave_at", sender.name || "Player", sender.isBot, `waved at ${target.name || "someone"}`);
     }
 
-    function onCoinsUpdate(value) {
-      if (value.coins !== undefined) setCoins(value.coins);
-    }
-
-    function onCoinsTransferSuccess(value) {
-      if (!value) return;
-      addActivity("coins_sent", "You", false, `sent ${value.amount} coins to ${value.toName || value.toUserId}`);
-    }
-
-    function onCoinsTransferReceived(value) {
-      if (!value) return;
-      soundManager.play("notification");
-      addActivity("coins_received", value.fromName || "Player", !!value.fromIsBot, `sent you ${value.amount} coins`);
-    }
-
     function onDirectMessage(value) {
       soundManager.play("dm_receive");
       setDmUnreadCounts((prev) => ({
@@ -426,12 +408,6 @@ export const SocketManager = () => {
           }],
         };
       });
-    }
-
-    function onPurchaseComplete(value) {
-      soundManager.play("purchase_complete");
-      setCoins(value.coins);
-      addActivity("purchase", "You", false, `bought ${value.item} for ${value.price} coins`);
     }
 
     function onBuildStarted(value) {
@@ -520,20 +496,6 @@ export const SocketManager = () => {
       }
     }
 
-    function onPlayerMoves(values) {
-      if (!Array.isArray(values)) return;
-      values.forEach((v) => {
-        if (!v || !v.id) return;
-        const dest = v.path && v.path.length > 0
-          ? v.path[v.path.length - 1]
-          : v.position;
-        if (dest) {
-          pendingPositionsRef.current.set(v.id, dest);
-        }
-      });
-      scheduleFlush();
-    }
-
     function onCharacterUpdated(value) {
       // value = { id, ...updatedFields }
       if (!value || !value.id) return;
@@ -556,14 +518,6 @@ export const SocketManager = () => {
     function onAvatarPlayerMove(value) {
       if (!value || !value.id) return;
       avatarDispatch.playerMove.get(value.id)?.(value);
-    }
-
-    function onAvatarPlayerMoves(values) {
-      if (!Array.isArray(values)) return;
-      for (let i = 0; i < values.length; i++) {
-        const v = values[i];
-        if (v && v.id) avatarDispatch.playerMove.get(v.id)?.(v);
-      }
     }
 
     function onAvatarPlayerDance(value) {
@@ -654,6 +608,10 @@ export const SocketManager = () => {
       if (value && value.id) avatarDispatch.bondEmotePlay.get(value.id)?.(value);
     }
 
+    function onEmotePlay(value) {
+      if (value && value.id) avatarDispatch.emotePlay.get(value.id)?.(value);
+    }
+
     function onRoomInvite(value) {
       if (!value || !value.inviteId) return;
       soundManager.play("notification");
@@ -685,6 +643,18 @@ export const SocketManager = () => {
       }]);
     }
 
+    function onSwitchRoomError(data) {
+      console.warn("[switchRoomError]", data?.error || data);
+    }
+
+    function onRateLimited(data) {
+      console.warn("[rateLimited]", data?.message || data);
+    }
+
+    function onItemsUpdateError(data) {
+      console.warn("[itemsUpdateError]", data?.error || data);
+    }
+
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
     socket.on("roomJoined", onRoomJoined);
@@ -696,20 +666,14 @@ export const SocketManager = () => {
     socket.on("playerChatMessage", onPlayerChatMessage);
     socket.on("playerAction", onPlayerAction);
     socket.on("playerWaveAt", onPlayerWaveAt);
-    socket.on("coinsUpdate", onCoinsUpdate);
-    socket.on("coinsTransferSuccess", onCoinsTransferSuccess);
-    socket.on("coinsTransferReceived", onCoinsTransferReceived);
     socket.on("directMessage", onDirectMessage);
     socket.on("directMessageSent", onDirectMessageSent);
-    socket.on("purchaseComplete", onPurchaseComplete);
     socket.on("buildStarted", onBuildStarted);
     socket.on("playerMove", onPlayerMove);
-    socket.on("playerMoves", onPlayerMoves);
     socket.on("characterJoined", onCharacterJoined);
     socket.on("characterLeft", onCharacterLeft);
     socket.on("characterUpdated", onCharacterUpdated);
     socket.on("playerMove", onAvatarPlayerMove);
-    socket.on("playerMoves", onAvatarPlayerMoves);
     socket.on("playerDance", onAvatarPlayerDance);
     socket.on("playerChatMessage", onAvatarPlayerChatMessage);
     socket.on("playerAction", onAvatarPlayerAction);
@@ -723,10 +687,14 @@ export const SocketManager = () => {
     socket.on("bondInfo", onBondInfo);
     socket.on("bondFormed", onBondFormed);
     socket.on("bondEmote:play", onBondEmotePlay);
+    socket.on("emote:play", onEmotePlay);
     socket.on("roomInvite", onRoomInvite);
     socket.on("objectives:init", onObjectivesInit);
     socket.on("objectives:progress", onObjectivesProgress);
     socket.on("objectives:complete", onObjectivesComplete);
+    socket.on("switchRoomError", onSwitchRoomError);
+    socket.on("rateLimited", onRateLimited);
+    socket.on("itemsUpdateError", onItemsUpdateError);
     return () => {
       clearTimeout(flushTimerRef.current);
       flushTimerRef.current = null;
@@ -741,20 +709,14 @@ export const SocketManager = () => {
       socket.off("playerChatMessage", onPlayerChatMessage);
       socket.off("playerAction", onPlayerAction);
       socket.off("playerWaveAt", onPlayerWaveAt);
-      socket.off("coinsUpdate", onCoinsUpdate);
-      socket.off("coinsTransferSuccess", onCoinsTransferSuccess);
-      socket.off("coinsTransferReceived", onCoinsTransferReceived);
       socket.off("directMessage", onDirectMessage);
       socket.off("directMessageSent", onDirectMessageSent);
-      socket.off("purchaseComplete", onPurchaseComplete);
       socket.off("buildStarted", onBuildStarted);
       socket.off("playerMove", onPlayerMove);
-      socket.off("playerMoves", onPlayerMoves);
       socket.off("characterJoined", onCharacterJoined);
       socket.off("characterLeft", onCharacterLeft);
       socket.off("characterUpdated", onCharacterUpdated);
       socket.off("playerMove", onAvatarPlayerMove);
-      socket.off("playerMoves", onAvatarPlayerMoves);
       socket.off("playerDance", onAvatarPlayerDance);
       socket.off("playerChatMessage", onAvatarPlayerChatMessage);
       socket.off("playerAction", onAvatarPlayerAction);
@@ -768,10 +730,14 @@ export const SocketManager = () => {
       socket.off("bondInfo", onBondInfo);
       socket.off("bondFormed", onBondFormed);
       socket.off("bondEmote:play", onBondEmotePlay);
+      socket.off("emote:play", onEmotePlay);
       socket.off("roomInvite", onRoomInvite);
       socket.off("objectives:init", onObjectivesInit);
       socket.off("objectives:progress", onObjectivesProgress);
       socket.off("objectives:complete", onObjectivesComplete);
+      socket.off("switchRoomError", onSwitchRoomError);
+      socket.off("rateLimited", onRateLimited);
+      socket.off("itemsUpdateError", onItemsUpdateError);
     };
   }, []);
 };

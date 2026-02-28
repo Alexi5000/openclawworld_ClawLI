@@ -13,7 +13,6 @@ import {
   socket,
   switchRoom,
   fetchRooms,
-  coinsAtom,
   questNotificationsAtom,
   charactersAtom,
   itemsAtom,
@@ -25,11 +24,9 @@ import {
   mapAtom,
   dmUnreadCountsAtom,
   dmInboxOpenAtom,
-  walletOpenAtom,
   objectivesAtom,
 } from "./SocketManager";
 import DirectMessagePanel, { dmPanelTargetAtom } from "./DirectMessagePanel";
-import WalletPanel from "./WalletPanel";
 import { renderAvatarPortrait } from "./Avatar";
 import soundManager from "../audio/SoundManager";
 
@@ -492,14 +489,12 @@ const HelpModal = ({ onClose }) => {
       { key: "Dance", desc: "Click the music note button to dance" },
       { key: "Switch Rooms", desc: "Click the building icon to browse and join rooms" },
       { key: "Change Avatar", desc: "Click the person icon to pick a character or create a custom one" },
-      { key: "Coins", desc: "Earn coins from social milestones and activities — your balance shows at the top" },
     ],
     social: [
       { key: "Click a Player", desc: "Opens their profile card with actions" },
       { key: "Wave", desc: "Send a wave emote from the character menu" },
       { key: "Follow", desc: "Follow a player and your camera tracks them" },
       { key: "Talk", desc: "Open a direct message chat with a bot or player" },
-      { key: "Shop", desc: "Buy items from bot shops via the Shop tab in DMs" },
     ],
     building: [
       { key: "Enter Build Mode", desc: "Click the house button — requires the room password" },
@@ -1361,7 +1356,6 @@ export const UI = () => {
   const [allRooms] = useAtom(roomsAtom);
   const [avatarUrl, setAvatarUrl] = useAtom(avatarUrlAtom);
   const [roomID, setRoomID] = useAtom(roomIDAtom);
-  const [coins] = useAtom(coinsAtom);
   const [characters] = useAtom(charactersAtom);
   const [questNotifications, setQuestNotifications] = useAtom(questNotificationsAtom);
   const [user] = useAtom(userAtom);
@@ -1372,7 +1366,6 @@ export const UI = () => {
   const [dmUnreadCounts] = useAtom(dmUnreadCountsAtom);
   const [dmInboxOpen, setDmInboxOpen] = useAtom(dmInboxOpenAtom);
   const [dmPanelTarget, setDmPanelTarget] = useAtom(dmPanelTargetAtom);
-  const [walletOpen, setWalletOpen] = useAtom(walletOpenAtom);
   const [objectives] = useAtom(objectivesAtom);
   // Safety timeout: force-clear the transition overlay if it stays active too long
   useEffect(() => {
@@ -1497,23 +1490,6 @@ export const UI = () => {
               </div>
             </div>
           </div>
-          <button
-            onClick={() => {
-              soundManager.play("button_click");
-              if (walletOpen) {
-                setWalletOpen(false);
-              } else {
-                setDmInboxOpen(false);
-                setDmPanelTarget(null);
-                setWalletOpen(true);
-              }
-            }}
-            className="bg-amber-50/90 backdrop-blur-sm border border-amber-200 rounded-full px-4 py-1.5 flex items-center gap-2 shadow-sm cursor-pointer hover:bg-amber-100/90 transition-colors"
-          >
-            <span className="text-amber-500 text-sm">&#x26AA;</span>
-            <span className="text-amber-700 font-bold text-sm">{coins}</span>
-            <span className="text-amber-500 text-xs font-semibold">coins</span>
-          </button>
         </div>
       )}
 
@@ -1554,7 +1530,6 @@ export const UI = () => {
               <div className={`${bgClass} backdrop-blur-sm border rounded-xl px-5 py-3 shadow-lg text-center`}>
                 <p className={`${headingClass} font-bold text-sm`}>{heading}</p>
                 <p className={`${subtitleClass} text-xs mt-0.5`}>{notif.title}</p>
-                <p className="text-amber-600 font-semibold text-xs mt-1">+{notif.reward} coins</p>
               </div>
             </motion.div>
           );
@@ -1563,9 +1538,6 @@ export const UI = () => {
 
       {/* Direct Message Panel */}
       <DirectMessagePanel />
-
-      {/* Wallet Panel */}
-      <WalletPanel />
 
       {/* Room Invite Notifications */}
       <div className="fixed bottom-24 right-4 z-[20] flex flex-col gap-2 pointer-events-none">
@@ -1751,7 +1723,6 @@ export const UI = () => {
                         setDmInboxOpen(false);
                         setDmPanelTarget(null);
                       } else {
-                        setWalletOpen(false);
                         setDmPanelTarget(null);
                         setDmInboxOpen(true);
                       }
@@ -1766,28 +1737,6 @@ export const UI = () => {
                         {unreadThreads}
                       </span>
                     )}
-                  </button>
-                )}
-
-                {/* Wallet */}
-                {roomID && (
-                  <button
-                    className="flex flex-col items-center gap-0.5 px-2 sm:px-3 py-1.5 rounded-xl cursor-pointer hover:bg-amber-50 transition-colors group"
-                    onClick={() => {
-                      soundManager.play("button_click");
-                      if (walletOpen) {
-                        setWalletOpen(false);
-                      } else {
-                        setDmInboxOpen(false);
-                        setDmPanelTarget(null);
-                        setWalletOpen(true);
-                      }
-                    }}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 sm:w-6 sm:h-6 text-amber-500 group-hover:text-amber-700 transition-colors">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3" />
-                    </svg>
-                    <span className="text-[10px] sm:text-xs text-amber-500 group-hover:text-amber-700 font-medium transition-colors">Wallet</span>
                   </button>
                 )}
 

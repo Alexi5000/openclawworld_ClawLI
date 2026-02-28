@@ -22,7 +22,6 @@ export const SOUNDS = {
   item_pickup: { src: "/audio/sfx/item_pickup.ogg", volume: 0.35, category: "sfx" },
   quest_accept: { src: "/audio/sfx/quest_accept.ogg", volume: 0.5, category: "sfx" },
   quest_complete: { src: "/audio/sfx/quest_complete.ogg", volume: 0.5, category: "sfx" },
-  purchase_complete: { src: "/audio/sfx/purchase_complete.ogg", volume: 0.45, category: "sfx" },
   build_mode_enter: { src: "/audio/sfx/build_mode_enter.ogg", volume: 0.35, category: "sfx" },
   build_mode_exit: { src: "/audio/sfx/build_mode_exit.ogg", volume: 0.3, category: "sfx" },
 

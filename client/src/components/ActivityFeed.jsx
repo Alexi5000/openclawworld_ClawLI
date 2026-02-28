@@ -16,7 +16,6 @@ const typeConfig = {
   done: { color: "text-green-600", label: "" },
   wave_at: { color: "text-yellow-600", label: "waved" },
   quest_completed: { color: "text-amber-600", label: "" },
-  purchase: { color: "text-indigo-600", label: "" },
   build_started: { color: "text-orange-600", label: "" },
 };
 
