@@ -1,7 +1,7 @@
 /**
  * Manual Bot Testing Script
  *
- * Creates a bot that can send coins and invites to users.
+ * Creates a bot that can send invites to users.
  * Run this alongside a browser session to test bot interactions.
  *
  * Usage:
@@ -9,12 +9,11 @@
  *   (default serverUrl: http://localhost:3000)
  *
  * Commands (enter in terminal while running):
- *   transfer <userId> <amount>  - Send coins to a user
  *   invite <socketId>           - Invite a user to your room
  *   list                        - List all users in current room
  *   switch <roomId>             - Switch to a different room
  *   rooms                       - List available rooms
- *   status                      - Show bot status and balance
+ *   status                      - Show bot status
  *   help                        - Show this help
  *   quit                        - Disconnect and exit
  */
@@ -32,7 +31,6 @@ let myId = null;
 let myUserId = null;
 let characters = [];
 let availableRooms = [];
-let coins = 0;
 
 function connect() {
   console.log(`\nConnecting to ${SERVER}...`);
@@ -67,11 +65,9 @@ function connect() {
     myUserId = data.userId || BOT_USER_ID;
     currentRoom = data.roomId;
     characters = data.characters || [];
-    coins = data.coins ?? 100;
     console.log(`\nJoined room: ${currentRoom}`);
     console.log(`My socket ID: ${myId}`);
     console.log(`My user ID: ${myUserId}`);
-    console.log(`My coins: ${coins}`);
     console.log(`${characters.length} characters in room`);
     console.log("\nType 'help' for commands, or 'list' to see users.\n");
   });
@@ -91,24 +87,6 @@ function connect() {
       console.log(`\n[-] ${char.name} left`);
       characters = characters.filter(c => c.id !== id);
     }
-  });
-
-  socket.on("coinsTransferSuccess", (data) => {
-    coins = data.balance;
-    console.log(`\n[Coins] Transfer successful! Sent ${data.amount} to ${data.toName}. Balance: ${coins}`);
-  });
-
-  socket.on("coinsTransferError", (data) => {
-    console.log(`\n[Coins] Transfer failed: ${data.error}`);
-  });
-
-  socket.on("coinsTransferReceived", (data) => {
-    coins = data.balance;
-    console.log(`\n[Coins] Received ${data.amount} from ${data.fromName}. Balance: ${coins}`);
-  });
-
-  socket.on("coinsUpdate", (data) => {
-    coins = data.coins;
   });
 
   socket.on("roomInvite", (data) => {
@@ -135,15 +113,6 @@ function listUsers() {
     console.log(`    User ID:   ${char.userId || "N/A"}`);
   }
   console.log("─".repeat(70));
-}
-
-function transferCoins(targetUserId, amount) {
-  if (!socket || !socket.connected) {
-    console.log("Not connected!");
-    return;
-  }
-  console.log(`Transferring ${amount} coins to user ${targetUserId}...`);
-  socket.emit("coins:transfer", { toUserId: targetUserId, amount: parseInt(amount, 10) });
 }
 
 function inviteUser(targetSocketId) {
@@ -185,25 +154,22 @@ function showStatus() {
   console.log(`  Socket ID: ${myId || "Not connected"}`);
   console.log(`  User ID: ${myUserId || "Not assigned"}`);
   console.log(`  Room: ${currentRoom || "None"}`);
-  console.log(`  Coins: ${coins}`);
   console.log(`  Connected: ${socket?.connected || false}`);
 }
 
 function showHelp() {
   console.log(`
 Commands:
-  transfer <userId> <amount>  - Send coins to a user by their USER ID
   invite <socketId>           - Invite a user to your room by SOCKET ID
   list                        - List all users in current room (shows both IDs)
   switch <roomId>             - Switch to a different room
   rooms                       - List available rooms
-  status                      - Show bot status and balance
+  status                      - Show bot status
   help                        - Show this help
   quit                        - Disconnect and exit
 
 Notes:
   - Use 'list' to see socket IDs and user IDs of players
-  - 'transfer' uses USER ID (persistent across sessions)
   - 'invite' uses SOCKET ID (changes each connection)
 `);
 }
@@ -221,14 +187,6 @@ rl.on("line", (line) => {
   const cmd = parts[0]?.toLowerCase();
 
   switch (cmd) {
-    case "transfer":
-      if (parts.length < 3) {
-        console.log("Usage: transfer <userId> <amount>");
-      } else {
-        transferCoins(parts[1], parts[2]);
-      }
-      break;
-
     case "invite":
       if (parts.length < 2) {
         console.log("Usage: invite <socketId>");
