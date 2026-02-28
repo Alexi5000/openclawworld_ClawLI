@@ -36,12 +36,6 @@ export function registerSocketHandlers(deps) {
     botSockets,
     sendWebhook,
     saveBotRegistry,
-    playerCoins,
-    DEFAULT_COINS,
-    updateCoins,
-    getCoins,
-    setCoins,
-    transferCoins,
     tryPlaceItemInRoom,
     initObjectives,
     checkBondMilestones,
@@ -59,7 +53,6 @@ export function registerSocketHandlers(deps) {
     dbCountRooms,
     dbGetNextApartmentNumber,
     limitChat,
-    limitTransfer,
     hashApiKey,
     pendingInvites,
     ensureUser,
@@ -177,9 +170,6 @@ export function registerSocketHandlers(deps) {
         await handleObjectiveCompletions(checkBondMilestones(socket.id, result.level));
         const targetCompletions = checkBondMilestones(targetCharacter.id, result.level);
         for (const obj of targetCompletions) {
-          if (targetCharacter.userId) {
-            await updateCoins(targetCharacter.userId, obj.reward, io, userSockets);
-          }
           io.to(targetCharacter.id).emit("objectives:complete", obj);
         }
         if (targetCompletions.length > 0) {
@@ -190,11 +180,9 @@ export function registerSocketHandlers(deps) {
         return result;
       };
 
-      // Helper: process completed objectives (award coins + emit events)
+      // Helper: process completed objectives (emit events)
       const handleObjectiveCompletions = async (completions) => {
-        const userId = getUserId();
         for (const obj of completions) {
-          if (userId) await updateCoins(userId, obj.reward, io, userSockets);
           socket.emit("objectives:complete", obj);
         }
         if (completions.length > 0) {
@@ -364,7 +352,6 @@ export function registerSocketHandlers(deps) {
         const displayName = opts?.name || (socket.data.officialBotKey ? botRegistry.get(socket.data.officialBotKey)?.name : null) || null;
         const userRecord = await ensureUser({ userId: resolvedUserId, name: displayName, isBot: isOfficialBot });
         if (userRecord) {
-          playerCoins.set(resolvedUserId, typeof userRecord.coins === "number" ? userRecord.coins : DEFAULT_COINS);
           await touchUser(resolvedUserId);
         }
         if (newSessionToken) {
@@ -379,7 +366,6 @@ export function registerSocketHandlers(deps) {
           isBot: isOfficialBot,
           isOfficialBot,
           name: displayName,
-          coins: playerCoins.get(resolvedUserId) || DEFAULT_COINS,
         };
         if (!room.password) character.canUpdateRoom = true;
         // Check if this join was triggered by a room invite
@@ -402,7 +388,6 @@ export function registerSocketHandlers(deps) {
           characters: stripCharacters(room.characters),
           id: socket.id,
           userId: resolvedUserId,
-          coins: playerCoins.get(resolvedUserId) || DEFAULT_COINS,
           hasPassword: !!room.password,
           invitedBy: character.invitedBy || null,
           sessionToken: newSessionToken || null, // Only send if newly generated
@@ -566,7 +551,6 @@ export function registerSocketHandlers(deps) {
           characters: stripCharacters(room.characters),
           id: socket.id,
           userId: currentUserId,
-          coins: currentUserId ? (playerCoins.get(currentUserId) || DEFAULT_COINS) : DEFAULT_COINS,
           hasPassword: !!room.password,
           invitedBy: character.invitedBy || null,
         });
@@ -1125,136 +1109,6 @@ export function registerSocketHandlers(deps) {
           message: trimmed,
           timestamp: Date.now(),
         });
-      });
-
-      // Coins transfer (global, userId-based)
-      socket.on("coins:transfer", async ({ toUserId, amount }) => {
-        if (!character) return;
-        if (limitTransfer(socket.id)) {
-          socket.emit("coinsTransferError", { error: "Too many transfers, slow down." });
-          return;
-        }
-        const fromUserId = getUserId();
-        if (!fromUserId) {
-          socket.emit("coinsTransferError", { error: "Missing sender identity." });
-          return;
-        }
-        const rawAmount = typeof amount === "number" ? amount : Number(amount);
-        const transferAmount = Number.isInteger(rawAmount) ? rawAmount : Math.floor(rawAmount);
-        if (!Number.isFinite(transferAmount) || transferAmount <= 0) {
-          socket.emit("coinsTransferError", { error: "Invalid amount." });
-          return;
-        }
-        if (transferAmount > 10000) {
-          socket.emit("coinsTransferError", { error: "Amount exceeds max transfer (10000)." });
-          return;
-        }
-        if (typeof toUserId !== "string" || toUserId.length < 8) {
-          socket.emit("coinsTransferError", { error: "Invalid recipient ID." });
-          return;
-        }
-        if (toUserId === fromUserId) {
-          socket.emit("coinsTransferError", { error: "Cannot transfer to yourself." });
-          return;
-        }
-        const recipient = await getUser(toUserId);
-        if (!recipient) {
-          socket.emit("coinsTransferError", { error: "Recipient not found." });
-          return;
-        }
-        const transferResult = await transferCoins(fromUserId, toUserId, transferAmount, io, userSockets);
-        if (!transferResult || transferResult.ok !== true) {
-          const code = transferResult?.error;
-          if (code === "insufficient") {
-            socket.emit("coinsTransferError", { error: "Insufficient coins." });
-          } else if (code === "sender_not_found") {
-            socket.emit("coinsTransferError", { error: "Missing sender identity." });
-          } else if (code === "recipient_not_found") {
-            socket.emit("coinsTransferError", { error: "Recipient not found." });
-          } else if (code === "self_transfer") {
-            socket.emit("coinsTransferError", { error: "Cannot transfer to yourself." });
-          } else {
-            socket.emit("coinsTransferError", { error: "Transfer failed." });
-          }
-          return;
-        }
-        const newSenderBalance = transferResult.fromBalance;
-        const newRecipientBalance = transferResult.toBalance;
-        socket.emit("coinsTransferSuccess", {
-          toUserId,
-          toName: recipient.name || "Player",
-          amount: transferAmount,
-          balance: newSenderBalance,
-        });
-        const recipientPayload = {
-          fromUserId,
-          fromName: character?.name || "Player",
-          fromIsBot: !!character?.isBot,
-          amount: transferAmount,
-          balance: newRecipientBalance,
-        };
-        const sockets = userSockets.get(toUserId);
-        if (sockets) {
-          for (const sid of sockets) {
-            io.to(sid).emit("coinsTransferReceived", recipientPayload);
-          }
-        }
-      });
-
-      // Bot shop events
-      socket.on("getBotShop", (botId) => {
-        if (!room) return;
-        let shop = [];
-        for (const [key, val] of botSockets) {
-          if (val.botId === botId) {
-            const reg = botRegistry.get(key);
-            if (reg && reg.shop) shop = reg.shop;
-            break;
-          }
-        }
-        socket.emit("botShopInventory", { botId, items: shop });
-      });
-
-      socket.on("buyFromBot", async ({ botId, itemName }) => {
-        if (!room || !character) return;
-        // Find shop item
-        let shopItem = null;
-        for (const [key, val] of botSockets) {
-          if (val.botId === botId) {
-            const reg = botRegistry.get(key);
-            if (reg && reg.shop) {
-              shopItem = reg.shop.find(s => s.item === itemName);
-            }
-            break;
-          }
-        }
-        if (!shopItem) {
-          socket.emit("purchaseError", { error: "Item not found in shop" });
-          return;
-        }
-        const userId = getUserId();
-        const coins = userId ? await getCoins(userId) : 0;
-        if (coins < shopItem.price) {
-          socket.emit("purchaseError", { error: "Insufficient coins", required: shopItem.price, have: coins });
-          return;
-        }
-        // Deduct coins
-        const newBalance = await updateCoins(userId, -shopItem.price, io, userSockets);
-        // Place item near the player
-        const itemDef = items[itemName];
-        if (itemDef) {
-          const pos = character.position || [0, 0];
-          const placed = tryPlaceItemInRoom(room, itemName, {
-            x: [Math.max(0, pos[0] - 5), Math.min(room.size[0] * room.gridDivision - 1, pos[0] + 5)],
-            y: [Math.max(0, pos[1] - 5), Math.min(room.size[1] * room.gridDivision - 1, pos[1] + 5)],
-          });
-          if (placed) {
-            io.to(room.id).emit("mapUpdate", {
-              map: { gridDivision: room.gridDivision, size: room.size, items: room.items },
-            });
-          }
-        }
-        socket.emit("purchaseComplete", { item: itemName, price: shopItem.price, coins: newBalance });
       });
 
       // Collaborative building request

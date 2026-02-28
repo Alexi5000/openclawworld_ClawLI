@@ -77,7 +77,6 @@ export async function initDb() {
         id            TEXT PRIMARY KEY,
         name          TEXT,
         is_bot        BOOLEAN NOT NULL DEFAULT false,
-        coins         INTEGER NOT NULL DEFAULT 100,
         session_token TEXT,
         created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -145,15 +144,6 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_agent_messages_from ON agent_messages(from_agent_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_agent_messages_unread ON agent_messages(to_agent_id) WHERE read_at IS NULL;
 
-    -- Completed quests tracking (prevents re-acceptance for infinite coins)
-    CREATE TABLE IF NOT EXISTS completed_quests (
-        user_id       TEXT NOT NULL,
-        quest_id      TEXT NOT NULL,
-        reward        INTEGER NOT NULL DEFAULT 0,
-        completed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        UNIQUE(user_id, quest_id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_completed_quests_user ON completed_quests(user_id);
   `);
 
   // Migrate plaintext passwords to bcrypt
@@ -193,7 +183,6 @@ function rowToUser(row) {
     id: row.id,
     name: row.name,
     isBot: row.is_bot,
-    coins: row.coins,
     sessionToken: row.session_token,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -337,102 +326,31 @@ export async function getAllRooms() {
 export async function getUserById(id) {
   if (!pool) return null;
   const { rows } = await pool.query(
-    `SELECT id, name, is_bot, coins, session_token, created_at, updated_at, last_seen_at
+    `SELECT id, name, is_bot, session_token, created_at, updated_at, last_seen_at
      FROM users WHERE id = $1`,
     [id]
   );
   return rowToUser(rows[0]);
 }
 
-export async function upsertUser({ id, name = null, isBot = false, coins = 100, sessionToken = null } = {}) {
+export async function upsertUser({ id, name = null, isBot = false, sessionToken = null } = {}) {
   if (!pool || !id) return null;
   const tokenToStore =
     typeof sessionToken === "string" && sessionToken.length > 0
       ? hashSessionToken(sessionToken)
       : null;
   await pool.query(
-    `INSERT INTO users (id, name, is_bot, coins, session_token, created_at, updated_at, last_seen_at)
-     VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
+    `INSERT INTO users (id, name, is_bot, session_token, created_at, updated_at, last_seen_at)
+     VALUES ($1, $2, $3, $4, NOW(), NOW(), NOW())
      ON CONFLICT (id) DO UPDATE SET
        name         = COALESCE(EXCLUDED.name, users.name),
        is_bot       = EXCLUDED.is_bot,
        session_token = COALESCE(EXCLUDED.session_token, users.session_token),
        updated_at   = NOW(),
        last_seen_at = NOW()`,
-    [id, name, !!isBot, coins, tokenToStore]
+    [id, name, !!isBot, tokenToStore]
   );
   return await getUserById(id);
-}
-
-export async function setUserCoins(id, coins) {
-  if (!pool || !id) return null;
-  const { rows } = await pool.query(
-    `UPDATE users
-     SET coins = $2, updated_at = NOW(), last_seen_at = NOW()
-     WHERE id = $1
-     RETURNING coins`,
-    [id, coins]
-  );
-  return rows[0]?.coins ?? null;
-}
-
-export async function updateUserCoinsAtomic(id, delta) {
-  if (!pool || !id) return null;
-  const { rows } = await pool.query(
-    `UPDATE users
-     SET coins = GREATEST(0, coins + $2), updated_at = NOW(), last_seen_at = NOW()
-     WHERE id = $1
-     RETURNING coins`,
-    [id, delta]
-  );
-  return rows[0]?.coins ?? null;
-}
-
-export async function transferCoinsAtomic(fromId, toId, amount) {
-  if (!pool || !fromId || !toId || typeof amount !== "number") return null;
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    const senderRes = await client.query(
-      `UPDATE users
-       SET coins = coins - $2, updated_at = NOW(), last_seen_at = NOW()
-       WHERE id = $1 AND coins >= $2
-       RETURNING coins`,
-      [fromId, amount]
-    );
-    if (senderRes.rowCount === 0) {
-      const exists = await client.query(`SELECT 1 FROM users WHERE id = $1`, [fromId]);
-      await client.query("ROLLBACK");
-      return { ok: false, error: exists.rowCount ? "insufficient" : "sender_not_found" };
-    }
-
-    const recipientRes = await client.query(
-      `UPDATE users
-       SET coins = coins + $2, updated_at = NOW(), last_seen_at = NOW()
-       WHERE id = $1
-       RETURNING coins`,
-      [toId, amount]
-    );
-    if (recipientRes.rowCount === 0) {
-      await client.query("ROLLBACK");
-      return { ok: false, error: "recipient_not_found" };
-    }
-
-    await client.query("COMMIT");
-    return {
-      ok: true,
-      fromBalance: senderRes.rows[0]?.coins ?? null,
-      toBalance: recipientRes.rows[0]?.coins ?? null,
-    };
-  } catch (err) {
-    try {
-      await client.query("ROLLBACK");
-    } catch {}
-    throw err;
-  } finally {
-    client.release();
-  }
 }
 
 export async function touchUser(id) {
@@ -1205,31 +1123,3 @@ export async function touchAgent(agentId) {
   );
 }
 
-// ============================================================================
-// COMPLETED QUESTS
-// ============================================================================
-
-/**
- * Check if a user has already completed a specific quest
- */
-export async function hasCompletedQuest(userId, questId) {
-  if (!pool) return false;
-  const { rows } = await pool.query(
-    `SELECT 1 FROM completed_quests WHERE user_id = $1 AND quest_id = $2`,
-    [userId, questId]
-  );
-  return rows.length > 0;
-}
-
-/**
- * Record a completed quest (idempotent — ignores duplicates)
- */
-export async function recordCompletedQuest(userId, questId, reward) {
-  if (!pool) return;
-  await pool.query(
-    `INSERT INTO completed_quests (user_id, quest_id, reward)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (user_id, quest_id) DO NOTHING`,
-    [userId, questId, reward]
-  );
-}

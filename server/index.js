@@ -3,7 +3,7 @@ import http from "http";
 import pathfinding from "pathfinding";
 import bcrypt from "bcrypt";
 import { Server } from "socket.io";
-import { ROOM_ZONES, scaleZoneArea } from "./shared/roomConstants.js";
+import { ROOM_ZONES, scaleZoneArea } from "../shared/roomConstants.js";
 import { initDb, isDbAvailable, listRooms as dbListRooms, countRooms as dbCountRooms, getNextApartmentNumber as dbGetNextApartmentNumber } from "./db.js";
 import {
   getCachedRoom, setCachedRoom, getAllCachedRooms, getOrLoadRoom,
@@ -16,9 +16,8 @@ import { items, itemsCatalog, ALLOWED_EMOTES, randomAvatarUrl, sanitizeAvatarUrl
 import { ensureSeatMaps, getSitSpots, unsitCharacter, normalizeAngle, DEFAULT_SIT_FACING_OFFSET } from "./sittingSystem.js";
 import { findPath, updateGrid, addItemToGrid, removeItemFromGrid } from "./pathfinding.js";
 import { bonds, BOND_LEVELS, bondKey, getBondLevel, loadBonds, saveBonds, applyBondProgress } from "./bondSystem.js";
-import { playerCoins, DEFAULT_COINS, updateCoins, getCoins, setCoins, transferCoins } from "./currencyQuests.js";
 import { botRegistry, botSockets, loadBotRegistry, saveBotRegistry, sendWebhook, syncAgentsToBotRegistry, syncBotRegistryToAgents } from "./botRegistry.js";
-import { loadUserStore, loadCompletedQuests, ensureUser, getUser, createUserId, touchUser, validateSessionToken, setSessionToken, createSessionToken } from "./userStore.js";
+import { loadUserStore, ensureUser, getUser, createUserId, touchUser, validateSessionToken, setSessionToken, createSessionToken } from "./userStore.js";
 import { initObjectives, checkBondMilestones, objectivesPayload, cleanupObjectives } from "./objectiveSystem.js";
 import { createHttpHandler } from "./httpRoutes.js";
 import { registerSocketHandlers } from "./socketHandlers.js";
@@ -47,13 +46,11 @@ const limitHttp = createRateLimiter(120, 60_000);
 const limitBotRegister = createRateLimiter(5, 3600_000);
 const limitChat = createRateLimiter(15, 10_000);
 const limitBotKeyRotate = createRateLimiter(3, 3600_000);
-const limitTransfer = createRateLimiter(8, 10_000);
 
 // --- Load persisted data ---
 loadBotRegistry();
 loadBonds();
 loadUserStore();
-loadCompletedQuests();
 
 // Restore verified bots from DB into registry (recovers from lost JSON), then sync registry to DB
 syncAgentsToBotRegistry()
@@ -345,12 +342,11 @@ const socketHelpers = registerSocketHandlers({
   sanitizeAvatarUrl, ALLOWED_EMOTES,
   bonds, bondKey, getBondLevel, BOND_LEVELS, saveBonds, applyBondProgress,
   botRegistry, botSockets, sendWebhook, saveBotRegistry,
-  playerCoins, DEFAULT_COINS, updateCoins, getCoins, setCoins, transferCoins,
   tryPlaceItemInRoom,
   initObjectives, checkBondMilestones, objectivesPayload, cleanupObjectives,
   getCachedRoom, getAllCachedRooms, getOrLoadRoom, setCachedRoom,
   scheduleEviction, cancelEviction, hydrateRoom,
-  isDbAvailable, dbListRooms, dbCountRooms, dbGetNextApartmentNumber, limitChat, limitTransfer, hashApiKey,
+  isDbAvailable, dbListRooms, dbCountRooms, dbGetNextApartmentNumber, limitChat, hashApiKey,
   ensureUser, getUser, createUserId, touchUser, validateSessionToken, setSessionToken, createSessionToken,
   socketUserIds, userSockets,
   pendingInvites,

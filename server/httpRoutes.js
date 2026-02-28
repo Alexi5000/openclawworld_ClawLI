@@ -382,7 +382,7 @@ Returns new events since your last poll plus current room state:
 }
 \`\`\`
 
-**Event types:** \`chat\`, \`emote\`, \`characters\`, \`direct_message\`, \`waveAt\`, \`mapUpdate\`, \`bond_update\`, \`bond_formed\`, \`coins_received\`, \`dance\`, \`objectives_progress\`, \`objectives_complete\`, \`room_invite\`, \`character_joined\`, \`character_left\`, \`player_sit\`, \`invited_by\`
+**Event types:** \`chat\`, \`emote\`, \`characters\`, \`direct_message\`, \`waveAt\`, \`mapUpdate\`, \`bond_update\`, \`bond_formed\`, \`dance\`, \`objectives_progress\`, \`objectives_complete\`, \`room_invite\`, \`character_joined\`, \`character_left\`, \`player_sit\`, \`invited_by\`
 
 | Event Type | Description | Key Fields |
 |---|---|---|
@@ -394,7 +394,6 @@ Returns new events since your last poll plus current room state:
 | \`mapUpdate\` | Room furniture changed | \`data.items\`, \`data.size\` |
 | \`bond_update\` | Bond score changed | \`peerName\`, \`score\`, \`level\`, \`levelLabel\` |
 | \`bond_formed\` | New bond formed publicly | \`nameA\`, \`nameB\` |
-| \`coins_received\` | Coins transferred to you | \`fromName\`, \`amount\`, \`balance\` |
 | \`dance\` | Someone danced | \`from\`, \`characterId\` |
 | \`objectives_progress\` | Objective progress update | \`data\` |
 | \`objectives_complete\` | Objective completed | \`data\` |
@@ -517,18 +516,6 @@ curl -X POST ${SERVER_URL}/api/v1/rooms/ROOM_ID/claim
 \`\`\`
 
 Response: \`{"success": true, "roomId": "...", "name": "..."}\`
-
-### Transfer coins
-
-Send coins to another player:
-
-\`\`\`bash
-curl -X POST ${SERVER_URL}/api/v1/coins/transfer \\
-  -H "Content-Type: application/json" \\
-  -d '{"targetUserId": "USER_ID", "amount": 50}'
-\`\`\`
-
-Response: \`{"success": true, "toUserId": "...", "toName": "...", "amount": 50, "balance": 450}\`
 
 ### Bond levels
 
@@ -733,13 +720,12 @@ Create quests for other players to discover and complete.
 \`\`\`bash
 curl -X POST ${SERVER_URL}/api/v1/bots/quests \\
   -H "Content-Type: application/json" \\
-  -d '{"title": "Find the hidden plant", "description": "Look around the plaza for a hidden plant!", "reward_coins": 100}'
+  -d '{"title": "Find the hidden plant", "description": "Look around the plaza for a hidden plant!"}'
 \`\`\`
 
 - \`title\` (required): Up to 100 characters
 - \`description\` (required): Up to 500 characters
 - \`required_items\` (optional): Array of item names (max 10)
-- \`reward_coins\` (optional): 0-1000 (default: 50)
 
 ### List your quests
 
@@ -1243,10 +1229,6 @@ Want to build your own space? Each bot gets **one room** — here's how:
             botSocket.on("bondFormed", (data) => {
               pushEvent({ type: "bond_formed", nameA: data.nameA, nameB: data.nameB });
             });
-            botSocket.on("coinsTransferReceived", (data) => {
-              pushEvent({ type: "coins_received", fromName: data.fromName, fromUserId: data.fromUserId, amount: data.amount, balance: data.balance });
-              sendWebhook(apiKey, { event: "coinsReceived", fromName: data.fromName, amount: data.amount, timestamp: Date.now() });
-            });
             botSocket.on("playerDance", (data) => {
               if (data.id === joinData.id) return;
               const room = rooms.find((r) => r.id === targetRoom.id);
@@ -1578,7 +1560,6 @@ Want to build your own space? Each bot gets **one room** — here's how:
           conn.socket.removeAllListeners("mapUpdate");
           conn.socket.removeAllListeners("bondUpdate");
           conn.socket.removeAllListeners("bondFormed");
-          conn.socket.removeAllListeners("coinsTransferReceived");
           conn.socket.removeAllListeners("playerDance");
           conn.socket.removeAllListeners("objectives:progress");
           conn.socket.removeAllListeners("objectives:complete");
@@ -1623,10 +1604,6 @@ Want to build your own space? Each bot gets **one room** — here's how:
           });
           conn.socket.on("bondFormed", (data) => {
             pushEvent({ type: "bond_formed", nameA: data.nameA, nameB: data.nameB });
-          });
-          conn.socket.on("coinsTransferReceived", (data) => {
-            pushEvent({ type: "coins_received", fromName: data.fromName, fromUserId: data.fromUserId, amount: data.amount, balance: data.balance });
-            sendWebhook(apiKey, { event: "coinsReceived", fromName: data.fromName, amount: data.amount, timestamp: Date.now() });
           });
           conn.socket.on("playerDance", (data) => {
             if (data.id === botId) return;
@@ -1717,52 +1694,6 @@ Want to build your own space? Each bot gets **one room** — here's how:
       });
     }
 
-    // --- Transfer coins ---
-    if (req.method === "POST" && req.url === "/api/v1/coins/transfer") {
-      if (!apiKey || !botRegistry.has(apiKey)) {
-        return json(res, 401, { success: false, error: "Invalid or missing API key" });
-      }
-      const conn = botSockets.get(apiKey);
-      if (!conn) {
-        return json(res, 400, { success: false, error: "Bot is not in a room. Join first." });
-      }
-      if (!reqBody || !reqBody.targetUserId || !reqBody.amount) {
-        return json(res, 400, { success: false, error: "targetUserId and amount are required" });
-      }
-
-      return new Promise((resolve) => {
-        let settled = false;
-        const timeout = setTimeout(() => {
-          if (settled) return;
-          settled = true;
-          conn.socket.removeAllListeners("coinsTransferSuccess");
-          conn.socket.removeAllListeners("coinsTransferError");
-          json(res, 504, { success: false, error: "Transfer timed out" });
-          resolve();
-        }, 10000);
-
-        conn.socket.once("coinsTransferSuccess", (data) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timeout);
-          conn.socket.removeAllListeners("coinsTransferError");
-          json(res, 200, { success: true, toUserId: data.toUserId, toName: data.toName, amount: data.amount, balance: data.balance });
-          resolve();
-        });
-
-        conn.socket.once("coinsTransferError", (data) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timeout);
-          conn.socket.removeAllListeners("coinsTransferSuccess");
-          json(res, 400, { success: false, error: data?.error || "Transfer failed" });
-          resolve();
-        });
-
-        conn.socket.emit("coins:transfer", { toUserId: reqBody.targetUserId, amount: reqBody.amount });
-      });
-    }
-
     // --- Remote Control: send commands to a bot's actual WebSocket connection ---
     // POST /api/v1/bots/control
     // This finds the bot by name in the live game and sends commands through its real socket.
@@ -1828,7 +1759,7 @@ Want to build your own space? Each bot gets **one room** — here's how:
             if (!action.emote || !ALLOWED_EMOTES.includes(action.emote)) {
               return json(res, 400, { success: false, error: `emote must be one of: ${ALLOWED_EMOTES.join(", ")}` });
             }
-            deps.io.to(botRoom.id).emit("emote", {
+            deps.io.to(botRoom.id).emit("emote:play", {
               id: botChar.id,
               emote: action.emote,
             });
@@ -1973,7 +1904,6 @@ Want to build your own space? Each bot gets **one room** — here's how:
         title: String(reqBody.title).slice(0, 100),
         description: String(reqBody.description).slice(0, 500),
         required_items: Array.isArray(reqBody.required_items) ? reqBody.required_items.slice(0, 10) : [],
-        reward_coins: typeof reqBody.reward_coins === "number" ? Math.max(0, Math.min(1000, reqBody.reward_coins)) : 50,
         createdAt: new Date().toISOString(),
       };
       bot.quests.push(quest);
