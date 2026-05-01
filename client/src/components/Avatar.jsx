@@ -9,7 +9,7 @@ import { atom, useAtom } from "jotai";
 import React, { useEffect, useMemo, useRef, useState, memo, useCallback } from "react";
 import { SkeletonUtils } from "three-stdlib";
 import { useGrid } from "../hooks/useGrid";
-import { socket, userAtom, avatarDispatch, bondsAtom, charactersAtom, characterEmotionsAtom, dmInboxOpenAtom, selfLivePosition, mapAtom } from "./SocketManager";
+import { socket, userAtom, avatarDispatch, bondsAtom, charactersAtom, dmInboxOpenAtom, selfLivePosition, mapAtom } from "./SocketManager";
 import { dmPanelTargetAtom } from "./DirectMessagePanel";
 import soundManager from "../audio/SoundManager";
 
@@ -38,6 +38,38 @@ const NEAR_EXIT_SQ = 17 * 17;
 const MID_ENTER_SQ = RENDER_DISTANCE_SQ;
 const MID_EXIT_SQ = RENDER_DISTANCE_HIDE_SQ;
 
+// Emote label map — module scope so all avatars share it
+const EMOTE_LABELS = {
+  dance: "\u{1F483} Dance",
+  sit: "\u{1FA91} Sit",
+  nod: "\u{1F642} Nod",
+  highfive: "\u{1F64F} Hi-Five!",
+  hug: "\u{1FAC2} Hug!",
+  happy: "\u{1F60A} Happy",
+  laugh: "\u{1F602} Laugh",
+  love: "\u{2764}\u{FE0F} Love",
+  sad: "\u{1F622} Sad",
+  think: "\u{1F914} Think",
+  clap: "\u{1F44F} Clap",
+  thumbsup: "\u{1F44D} Thumbs Up",
+};
+
+// Emote categories
+const EMOTE_CATEGORY = {
+  dance: "action", wave: "action", sit: "action",
+  nod: "social", clap: "social", thumbsup: "social",
+  highfive: "bond", hug: "bond",
+  happy: "emotion", laugh: "emotion", love: "emotion", sad: "emotion", think: "emotion",
+};
+
+// Per-category bubble styles: [bgClass, borderClass, textClass]
+const EMOTE_BUBBLE_STYLES = {
+  action:  ["bg-blue-100/90",  "border-blue-200/40",  "text-blue-600"],
+  social:  ["bg-green-100/90", "border-green-200/40", "text-green-600"],
+  bond:    ["bg-pink-100/90",  "border-pink-200/40",  "text-pink-600"],
+  emotion: ["bg-amber-100/90", "border-amber-200/40", "text-amber-600"],
+};
+
 // Reusable vectors to avoid allocations in the hot loop
 const _direction = new THREE.Vector3();
 const _targetQuat = new THREE.Quaternion();
@@ -59,19 +91,6 @@ const _thighSitQuatPos = new THREE.Quaternion()
 const _kneeBendPos = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
 const _kneeBendNeg = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 
-const EMOTION_EMOJIS = {
-  happy: "\u{1F604}",
-  sad: "\u{1F622}",
-  angry: "\u{1F620}",
-  love: "\u{1F970}",
-  surprised: "\u{1F62E}",
-  anxious: "\u{1F630}",
-  disgusted: "\u{1F922}",
-  neutral: "\u{1F642}",
-  playful: "\u{1F61C}",
-  confident: "\u{1F60E}",
-};
-
 // Non-humanoid model configurations — maps bone names for procedural animation
 const MODEL_CONFIGS = {
   nubcat: {
@@ -86,6 +105,16 @@ const MODEL_CONFIGS = {
       cheekL: "cheek.L_06",
       head: "head_07",
     },
+  },
+  shibaInu: {
+    test: (url) => url.includes("shibaInu"),
+    embedded: true,
+    animMap: { walk: "Walk", idle: "Idle", dance: "Gallop", wave: "Eating" },
+  },
+  cat: {
+    test: (url) => url.includes("cat.glb"),
+    embedded: true,
+    animMap: { walk: "Walk", idle: "Idle", dance: "Run", wave: "Headbutt" },
   },
 };
 
@@ -199,6 +228,7 @@ export const Avatar = memo(function Avatar({
   avatarUrl = "/models/sillyNubCat.glb",
   name = "Player",
   isBot = false,
+  isPet = false,
   leaving = false,
   gridPosition,
   showHtmlOverlay = true,
@@ -207,6 +237,8 @@ export const Avatar = memo(function Avatar({
   const [actionStatus, setActionStatus] = useState(null); // { action, detail }
   const [showBondHearts, setShowBondHearts] = useState(false);
   const [bondEmote, setBondEmote] = useState(null); // "highfive" | "hug" | null
+  const [emoteLabel, setEmoteLabel] = useState(null); // general emote label
+  const [emoteBubbleStyle, setEmoteBubbleStyle] = useState(null); // category style tuple
   const [, setSelectedCharacter] = useAtom(selectedCharacterAtom);
   const [followedCharacter, setFollowedCharacter] = useAtom(followedCharacterAtom);
   const { gridToVector3 } = useGrid();
@@ -239,17 +271,22 @@ export const Avatar = memo(function Avatar({
       (gridPosition[0] !== lastServerGridPos.current?.[0] ||
         gridPosition[1] !== lastServerGridPos.current?.[1])
     ) {
-      const newPos = gridToVector3(gridPosition);
-      group.current.position.copy(newPos);
-      // Clear any stale path so the avatar doesn't walk from old position
-      pathRef.current = [];
-      pathIndexRef.current = 0;
+      // Only snap if the avatar is NOT currently walking a path.
+      // During movement, the avatar is the authority on its own position;
+      // it already tracks lastServerGridPos from the playerMove event.
+      const hasActivePath = pathIndexRef.current < pathRef.current.length;
+      if (!hasActivePath) {
+        const newPos = gridToVector3(gridPosition);
+        group.current.position.copy(newPos);
+        pathRef.current = [];
+        pathIndexRef.current = 0;
+      }
     }
     lastServerGridPos.current = gridPosition;
   }, [gridPosition]);
 
   const group = useRef();
-  const { scene } = useGLTF(avatarUrl);
+  const { scene, animations: modelAnimations } = useGLTF(avatarUrl);
   // Skinned meshes cannot be re-used in threejs without cloning them
   const clone = useMemo(() => SkeletonUtils.clone(scene), [scene]);
   // Task 7: Share GPU geometry buffers — only 4 unique avatar URLs exist
@@ -271,7 +308,8 @@ export const Avatar = memo(function Avatar({
 
   // Detect non-humanoid model type for procedural animation
   const modelConfig = useMemo(() => getModelConfig(avatarUrl), [avatarUrl]);
-  const isNonHumanoid = !!modelConfig;
+  const isEmbeddedAnim = !!modelConfig?.embedded;
+  const isNonHumanoid = !!modelConfig && !isEmbeddedAnim;
   const isNubcat = useMemo(() => avatarUrl.includes("sillyNubCat"), [avatarUrl]);
   const proceduralBonesRef = useRef(null);
   const restPosesRef = useRef(null);
@@ -305,10 +343,38 @@ export const Avatar = memo(function Avatar({
     return clip;
   }, [sitAnimation]);
 
-  const { actions, mixer } = useAnimations(
-    isNonHumanoid ? [] : [walkAnimation[0], idleAnimation[0], danceAnimation[0], waveAnimation[0], fixedSitClip],
-    avatar
-  );
+  // For embedded-animation models (shibaInu, cat), rename their GLB clips to match
+  // the humanoid animation names so applyAnimation() works unchanged.
+  const embeddedClips = useMemo(() => {
+    if (!isEmbeddedAnim || !modelAnimations?.length || !modelConfig?.animMap) return [];
+    const animMap = modelConfig.animMap;
+    // Map: internal state name -> humanoid clip name
+    const stateToClipName = {
+      walk: "M_Walk_001",
+      idle: "M_Standing_Idle_001",
+      dance: "M_Dances_001",
+      wave: "M_Standing_Expressions_001",
+    };
+    const clips = [];
+    for (const [state, searchName] of Object.entries(animMap)) {
+      // Find the clip in the model's animations (partial name match for nested names)
+      const srcClip = modelAnimations.find((c) => c.name.includes(searchName));
+      if (srcClip) {
+        const renamed = srcClip.clone();
+        renamed.name = stateToClipName[state] || srcClip.name;
+        clips.push(renamed);
+      }
+    }
+    return clips;
+  }, [isEmbeddedAnim, modelAnimations, modelConfig]);
+
+  const animClips = useMemo(() => {
+    if (isEmbeddedAnim) return embeddedClips;
+    if (isNonHumanoid) return [];
+    return [walkAnimation[0], idleAnimation[0], danceAnimation[0], waveAnimation[0], fixedSitClip];
+  }, [isEmbeddedAnim, isNonHumanoid, embeddedClips, walkAnimation, idleAnimation, danceAnimation, waveAnimation, fixedSitClip]);
+
+  const { actions, mixer } = useAnimations(animClips, avatar);
 
   // Use refs for animation state to avoid re-renders from useFrame
   const animationRef = useRef("M_Standing_Idle_001");
@@ -559,6 +625,36 @@ export const Avatar = memo(function Avatar({
       setTimeout(() => setBondEmote(null), 3000);
     }
 
+    function onEmotePlay(value) {
+      if (!value || !value.emote) return;
+      const emote = value.emote;
+      // Trigger the appropriate animation
+      if (emote === "wave") {
+        isWavingRef.current = true;
+        isDancingRef.current = false;
+        isSittingRef.current = false;
+        walkToSitRef.current = false;
+        seatDataRef.current = null;
+        pathRef.current = [];
+        pathIndexRef.current = 0;
+        clearTimeout(waveTimeoutRef.current);
+        waveTimeoutRef.current = setTimeout(() => {
+          isWavingRef.current = false;
+        }, 5000);
+        return; // Wave animation is sufficient — skip the emote label
+      } else if (emote === "dance") {
+        isDancingRef.current = true;
+        isSittingRef.current = false;
+        walkToSitRef.current = false;
+        seatDataRef.current = null;
+      }
+      // Show emote label bubble for non-wave emotes
+      setEmoteLabel(EMOTE_LABELS[emote] || emote);
+      const cat = EMOTE_CATEGORY[emote] || "action";
+      setEmoteBubbleStyle(EMOTE_BUBBLE_STYLES[cat] || EMOTE_BUBBLE_STYLES.action);
+      setTimeout(() => { setEmoteLabel(null); setEmoteBubbleStyle(null); }, 5000);
+    }
+
     function onPlayerThinking(value) {
       clearTimeout(thinkingTimeoutRef.current);
       if (value.thinking) {
@@ -581,6 +677,7 @@ export const Avatar = memo(function Avatar({
     avatarDispatch.playerSit.set(id, onPlayerSit);
     avatarDispatch.playerUnsit.set(id, onPlayerUnsit);
     avatarDispatch.bondEmotePlay.set(id, onBondEmotePlay);
+    avatarDispatch.emotePlay.set(id, onEmotePlay);
     avatarDispatch.playerThinking.set(id, onPlayerThinking);
 
     return () => {
@@ -592,6 +689,7 @@ export const Avatar = memo(function Avatar({
       avatarDispatch.playerSit.delete(id);
       avatarDispatch.playerUnsit.delete(id);
       avatarDispatch.bondEmotePlay.delete(id);
+      avatarDispatch.emotePlay.delete(id);
       avatarDispatch.playerThinking.delete(id);
       clearTimeout(chatMessageBubbleTimeout);
       clearTimeout(waveTimeoutRef.current);
@@ -602,7 +700,6 @@ export const Avatar = memo(function Avatar({
   const [user] = useAtom(userAtom);
   const [bonds] = useAtom(bondsAtom);
   const [characters] = useAtom(charactersAtom);
-  const [characterEmotions] = useAtom(characterEmotionsAtom);
   const [mapData] = useAtom(mapAtom);
   const bondsRef = useRef(bonds);
   const charactersRef = useRef(characters);
@@ -621,8 +718,8 @@ export const Avatar = memo(function Avatar({
     if (id === user && group.current) {
       const gd = mapDataRef.current?.gridDivision || 1;
       selfLivePosition.current = [
-        Math.floor(group.current.position.x * gd),
-        Math.floor(group.current.position.z * gd),
+        group.current.position.x * gd,
+        group.current.position.z * gd,
       ];
     }
 
@@ -705,7 +802,7 @@ export const Avatar = memo(function Avatar({
         for (const c of curChars) {
           if (c.id === user || !c.name) continue;
           const b = curBonds[c.name];
-          if (!b || !b.maxLevel) continue;
+          if (!b || b.level < 2) continue;
           const other = threeScene.getObjectByName(`character-${c.id}`);
           if (!other) continue;
           const dx = group.current.position.x - other.position.x;
@@ -736,9 +833,10 @@ export const Avatar = memo(function Avatar({
       }
     }
 
-    // Cache humanoid leg bones for sitting overrides on all models EXCEPT nubcat.
+    // Cache humanoid leg bones for sitting overrides on all models EXCEPT nubcat/pets.
     // (nubcat uses the procedural rig with different bone names/orientation.)
-    if (!isNubcat) {
+    // (embedded-anim pets have animal rigs without humanoid bones.)
+    if (!isNubcat && !isEmbeddedAnim) {
       if (!hipsRef.current) {
         hipsRef.current = avatar.current.getObjectByName("Hips");
         leftUpLegRef.current = avatar.current.getObjectByName("LeftUpLeg");
@@ -767,13 +865,19 @@ export const Avatar = memo(function Avatar({
     if (isSittingRef.current && seatDataRef.current) {
       const seatWorldPos = gridToVector3(seatDataRef.current.seatPos);
       const rot = seatDataRef.current.seatRotation;
-      group.current.position.set(seatWorldPos.x, seatDataRef.current.seatHeight, seatWorldPos.z);
+      // Nudge avatar forward (toward facing direction) so it doesn't sit too far back on couches
+      const seatForwardOffset = 0.35;
+      group.current.position.set(
+        seatWorldPos.x + Math.sin(rot) * seatForwardOffset,
+        seatDataRef.current.seatHeight,
+        seatWorldPos.z + Math.cos(rot) * seatForwardOffset
+      );
       group.current.quaternion.setFromAxisAngle(_up, rot);
       group.current.updateMatrixWorld(true);
       applyAnimation("M_Sitting_001");
       // Override full leg rotation for all rigs that expose humanoid leg bones,
-      // except nubcat (which uses a separate procedural rig).
-      if (!isNubcat) {
+      // except nubcat/pets (which use different rigs).
+      if (!isNubcat && !isEmbeddedAnim) {
         // Some rigs have the thigh axis mirrored, which makes the sit pose flip 180deg.
         // Pick the per-leg thigh sign that puts the knee forward in group-local +Z.
         if (!sitLegFixRef.current && group.current && avatar.current && leftUpLegRef.current && rightUpLegRef.current && leftLegRef.current && rightLegRef.current) {
@@ -1022,8 +1126,8 @@ export const Avatar = memo(function Avatar({
     >
       {(showHtmlOverlay || id === user) && !leaving && (
         <>
-          {/* Always-visible name label — clickable to open character menu */}
-          <Html position-y={isNonHumanoid ? 1.1 : 2.1} center distanceFactor={8} zIndexRange={[1, 0]} style={{ overflow: 'visible', pointerEvents: 'none' }}>
+          {/* Name label — own Html for click handler and zIndex */}
+          <Html position-y={isPet ? 0.45 : isNonHumanoid ? 1.1 : 2.1} center distanceFactor={8} zIndexRange={[1, 0]} style={{ overflow: 'visible', pointerEvents: 'none' }}>
             <div
               className="select-none cursor-pointer"
               style={{ pointerEvents: 'auto' }}
@@ -1033,76 +1137,72 @@ export const Avatar = memo(function Avatar({
               }}
             >
               <div className="flex flex-col items-center justify-center gap-0.5 whitespace-nowrap">
-                {(() => {
-                  const emotion = characterEmotions[id];
-                  let moodEmoji = null;
-                  if (emotion) {
-                    moodEmoji = EMOTION_EMOJIS[emotion] || null;
-                  }
-                  // Fallback: bots get crab if no mood data
-                  if (!moodEmoji && isBot) moodEmoji = '\u{1F980}';
-                  return moodEmoji ? (
-                    <span className="text-lg leading-none" style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))" }}>
-                      {moodEmoji}
-                    </span>
-                  ) : null;
-                })()}
                 <span
-                  className="text-[11px] font-bold px-2 py-0.5 rounded-full"
+                  className={`text-[11px] font-bold px-2 py-0.5 rounded-full${isPet ? " text-[9px]" : ""}`}
                   style={{
-                    color: isBot ? "#93c5fd" : "#ffffff",
+                    color: isPet ? "#fdba74" : isBot ? "#93c5fd" : "#ffffff",
                     background: "rgba(0,0,0,0.45)",
                     backdropFilter: "blur(4px)",
                     textShadow: "0 1px 2px rgba(0,0,0,0.5)",
                   }}
                 >
-                  {name}
+                  {isPet ? "\uD83D\uDC3E " : ""}{name}
                 </span>
               </div>
             </div>
           </Html>
-          {/* Hover action buttons — between name and chat bubble */}
-          {hovered && id !== user && (
-            <Html position-y={isNonHumanoid ? 1.4 : 2.45} center distanceFactor={8} zIndexRange={[2, 0]} style={{ overflow: 'visible', pointerEvents: 'none' }}>
-              <div
-                className="flex items-center gap-1"
-                style={{
-                  pointerEvents: 'auto',
-                  animation: 'fadeIn 150ms ease-out',
-                }}
-              >
-                <button
-                  onClick={handleHoverWave}
-                  className="flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium text-white cursor-pointer transition-all hover:scale-105 active:scale-95"
-                  style={{
-                    background: 'rgba(0,0,0,0.55)',
-                    backdropFilter: 'blur(4px)',
-                    border: '1px solid rgba(255,255,255,0.15)',
-                  }}
-                >
-                  <span>{"\u{1F44B}"}</span> Wave
-                </button>
-                <button
-                  onClick={handleHoverFollow}
-                  className="flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium text-white cursor-pointer transition-all hover:scale-105 active:scale-95"
-                  style={{
-                    background: followedCharacter?.id === id ? 'rgba(59,130,246,0.7)' : 'rgba(0,0,0,0.55)',
-                    backdropFilter: 'blur(4px)',
-                    border: '1px solid rgba(255,255,255,0.15)',
-                  }}
-                >
-                  <span>{followedCharacter?.id === id ? "\u{1F441}\uFE0F" : "\u{1F4F7}"}</span> {followedCharacter?.id === id ? "Unfollow" : "Follow"}
-                </button>
-              </div>
-            </Html>
-          )}
-          {/* Chat bubble + action status — positioned above name label */}
-          <Html position-y={isNonHumanoid ? 1.7 : 2.8} center distanceFactor={8} zIndexRange={[1, 0]} style={{ overflow: 'visible', pointerEvents: 'none' }}>
-            <div className="w-60 max-w-full pointer-events-none overflow-visible">
-              {/* Action status indicator — hidden for bots to reduce visual noise */}
-              {actionStatus && !showChatBubble && !isBot && (
+          {/* Consolidated overhead UI — single Html for all status/emote/chat elements */}
+          <Html position-y={isPet ? 0.65 : isNonHumanoid ? 1.4 : 2.45} center distanceFactor={8} zIndexRange={[2, 0]} style={{ overflow: 'visible', pointerEvents: 'none' }}>
+            <div className="avatar-overhead-stack">
+              {/* Bond hearts — top layer */}
+              {showBondHearts && (
+                <div className="heart-float-container" style={{ filter: "drop-shadow(0 1px 3px rgba(236,72,153,0.5))" }}>
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <span
+                      key={i}
+                      className="heart-particle"
+                      style={{ animationDelay: `${i * 0.4}s` }}
+                    >
+                      &#x2764;&#xFE0F;
+                    </span>
+                  ))}
+                </div>
+              )}
+              {/* Status layer — priority chain, only one renders */}
+              {showChatBubble ? (
+                <div className="avatar-bubble avatar-bubble--chat w-60 max-w-full">
+                  <p className="text-sm text-black leading-snug">{chatMessage}</p>
+                </div>
+              ) : bondEmote ? (
+                <div className="avatar-bubble bond-emote-bubble bg-pink-100/90 border border-pink-200/40 whitespace-nowrap">
+                  <span className="bond-sparkle" style={{ animationDelay: "0s" }}>{"\u2728"}</span>
+                  <span className="bond-sparkle" style={{ animationDelay: "0.3s" }}>{"\u2728"}</span>
+                  <p className="text-sm text-pink-600 font-semibold">{bondEmote}</p>
+                  <span className="bond-sparkle" style={{ animationDelay: "0.15s" }}>{"\u2728"}</span>
+                  <span className="bond-sparkle" style={{ animationDelay: "0.45s" }}>{"\u2728"}</span>
+                </div>
+              ) : emoteLabel ? (
+                <div className={`avatar-bubble emote-bubble-enter border ${emoteBubbleStyle ? emoteBubbleStyle.join(" ") : "bg-blue-100/90 border-blue-200/40 text-blue-600"}`}>
+                  <p className="text-sm font-semibold">{emoteLabel}</p>
+                </div>
+              ) : isBot && isThinking ? (
+                <div className="avatar-bubble avatar-bubble--thinking">
+                  <span
+                    className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"
+                    style={{ animationDelay: "0ms", animationDuration: "600ms" }}
+                  />
+                  <span
+                    className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"
+                    style={{ animationDelay: "150ms", animationDuration: "600ms" }}
+                  />
+                  <span
+                    className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"
+                    style={{ animationDelay: "300ms", animationDuration: "600ms" }}
+                  />
+                </div>
+              ) : actionStatus && !isBot ? (
                 <div
-                  className={`text-center mb-1 p-1.5 px-3 rounded-lg border transition-opacity duration-300 ${
+                  className={`avatar-bubble text-xs text-gray-700 border ${
                     actionStatus.action === "thinking"
                       ? "bg-yellow-100/80 border-yellow-300/40"
                       : actionStatus.action === "building"
@@ -1112,70 +1212,46 @@ export const Avatar = memo(function Avatar({
                       : "bg-blue-100/80 border-blue-300/40"
                   }`}
                 >
-                  <p className="text-xs text-gray-700 leading-snug whitespace-nowrap">
-                    {actionStatus.action === "thinking" && "🤔 "}
-                    {actionStatus.action === "building" && "🔨 "}
-                    {actionStatus.action === "done" && "✅ "}
-                    {actionStatus.action === "walking" && "🚶 "}
-                    {actionStatus.action === "chatting" && "💬 "}
-                    {actionStatus.action === "dancing" && "💃 "}
-                    {actionStatus.action === "emoting" && "😊 "}
+                  <p className="leading-snug whitespace-nowrap">
+                    {actionStatus.action === "thinking" && "\u{1F914} "}
+                    {actionStatus.action === "building" && "\u{1F528} "}
+                    {actionStatus.action === "done" && "\u2705 "}
+                    {actionStatus.action === "walking" && "\u{1F6B6} "}
+                    {actionStatus.action === "chatting" && "\u{1F4AC} "}
+                    {actionStatus.action === "dancing" && "\u{1F483} "}
+                    {actionStatus.action === "emoting" && "\u{1F60A} "}
                     {actionStatus.detail}
                   </p>
                 </div>
+              ) : null}
+              {/* Hover action buttons — bottom layer */}
+              {hovered && id !== user && (
+                <div
+                  className="flex items-center gap-1"
+                  style={{
+                    pointerEvents: 'auto',
+                    animation: 'fadeIn 150ms ease-out',
+                  }}
+                >
+                  <button onClick={handleHoverWave} className="avatar-hover-btn">
+                    <span>{"\u{1F44B}"}</span> Wave
+                  </button>
+                  <button
+                    onClick={handleHoverFollow}
+                    className="avatar-hover-btn"
+                    style={followedCharacter?.id === id ? { background: 'rgba(59,130,246,0.7)' } : undefined}
+                  >
+                    <span>{followedCharacter?.id === id ? "\u{1F441}\uFE0F" : "\u{1F4F7}"}</span> {followedCharacter?.id === id ? "Unfollow" : "Follow"}
+                  </button>
+                </div>
               )}
-              {/* Chat bubble */}
-              <div
-                className={`text-center break-words p-2 px-4 rounded-xl bg-white/80 border border-white/20 transition-opacity duration-500 ${
-                  showChatBubble ? "opacity-100" : "opacity-0"
-                }`}
-              >
-                <p className="text-sm text-black leading-snug">{chatMessage}</p>
-              </div>
             </div>
           </Html>
         </>
       )}
-      {/* Bot thinking indicator */}
-      {isBot && isThinking && !showChatBubble && (
-        <Html position-y={isNonHumanoid ? 1.7 : 2.8} center distanceFactor={8} zIndexRange={[2, 0]} style={{ overflow: 'visible', pointerEvents: 'none' }}>
-          <div className="flex items-center justify-center gap-1 p-2 px-4 rounded-xl bg-white/90 border border-indigo-200/40 shadow-sm">
-            <span
-              className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"
-              style={{ animationDelay: "0ms", animationDuration: "600ms" }}
-            />
-            <span
-              className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"
-              style={{ animationDelay: "150ms", animationDuration: "600ms" }}
-            />
-            <span
-              className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"
-              style={{ animationDelay: "300ms", animationDuration: "600ms" }}
-            />
-          </div>
-        </Html>
-      )}
-      {/* Bond emote bubble */}
-      {bondEmote && (
-        <Html position-y={isNonHumanoid ? 1.7 : 2.8} center distanceFactor={8} zIndexRange={[2, 0]} style={{ overflow: 'visible', pointerEvents: 'none' }}>
-          <div className="text-center p-2 px-4 rounded-xl bg-pink-100/90 border border-pink-200/40 animate-bounce whitespace-nowrap">
-            <p className="text-sm text-pink-600 font-semibold">{bondEmote}</p>
-          </div>
-        </Html>
-      )}
-      {/* Floating hearts for bonded proximity */}
-      {showBondHearts && id === user && (
-        <Html position-y={2.5} center distanceFactor={8} zIndexRange={[1, 0]} style={{ overflow: 'visible', pointerEvents: 'none' }}>
-          <div className="flex gap-1 animate-bounce" style={{ filter: "drop-shadow(0 1px 3px rgba(236,72,153,0.5))" }}>
-            <span className="text-pink-400 text-sm">&#x2764;&#xFE0F;</span>
-            <span className="text-pink-300 text-xs" style={{ animationDelay: "0.15s" }}>&#x2764;&#xFE0F;</span>
-            <span className="text-pink-400 text-sm" style={{ animationDelay: "0.3s" }}>&#x2764;&#xFE0F;</span>
-          </div>
-        </Html>
-      )}
       {/* Invisible click hitbox — skinned meshes don't raycast reliably */}
-      <mesh position-y={0.9}>
-        <capsuleGeometry args={[0.3, 1.0, 4, 8]} />
+      <mesh position-y={isPet ? 0.18 : 0.9}>
+        <capsuleGeometry args={isPet ? [0.12, 0.24, 4, 8] : [0.3, 1.0, 4, 8]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
       <motion.group
@@ -1193,7 +1269,9 @@ export const Avatar = memo(function Avatar({
           : { delay: entranceDelayRef.current, mass: 2, stiffness: 300, damping: 30 }
         }
       >
-        {avatarUrl.startsWith("/") ? (
+        {isPet ? (
+          <primitive object={clone} ref={avatar} scale={0.3} />
+        ) : avatarUrl.startsWith("/") ? (
           <primitive object={clone} ref={avatar} scale={0.63} position-y={0.6} />
         ) : (
           <primitive object={clone} ref={avatar} />
@@ -1317,20 +1395,6 @@ export const renderAvatarPortrait = (avatarUrl, callback) => {
 };
 
 const BOND_LEVEL_COUNT = 6;
-const EMOTION_OPTIONS = [
-  { value: "", label: "None" },
-  { value: "happy", label: "Happy" },
-  { value: "sad", label: "Sad" },
-  { value: "angry", label: "Angry" },
-  { value: "love", label: "Love" },
-  { value: "surprised", label: "Surprised" },
-  { value: "anxious", label: "Anxious" },
-  { value: "disgusted", label: "Disgusted" },
-  { value: "neutral", label: "Neutral" },
-  { value: "playful", label: "Playful" },
-  { value: "confident", label: "Confident" },
-];
-
 export const CharacterMenu = () => {
   const [selectedCharacter, setSelectedCharacter] = useAtom(selectedCharacterAtom);
   const [followedCharacter, setFollowedCharacter] = useAtom(followedCharacterAtom);
@@ -1338,7 +1402,6 @@ export const CharacterMenu = () => {
   const [, setDmInboxOpen] = useAtom(dmInboxOpenAtom);
   const [user] = useAtom(userAtom);
   const [bonds] = useAtom(bondsAtom);
-  const [characterEmotions, setCharacterEmotions] = useAtom(characterEmotionsAtom);
   const [portraitUrl, setPortraitUrl] = useState(null);
   const [portraitLoading, setPortraitLoading] = useState(false);
   const prevCharIdRef = useRef(null);
@@ -1374,8 +1437,6 @@ export const CharacterMenu = () => {
 
   const isFollowing = followedCharacter?.id === selectedCharacter.id;
   const bond = selectedCharacter.name ? bonds[selectedCharacter.name] : null;
-  const currentEmotion = characterEmotions[selectedCharacter.id] || "";
-
   const handleWave = () => {
     socket.emit("wave:at", selectedCharacter.id);
     setSelectedCharacter(null);
@@ -1416,19 +1477,6 @@ export const CharacterMenu = () => {
 
   const handleClose = () => {
     setSelectedCharacter(null);
-  };
-
-  const handleEmotionChange = (event) => {
-    const value = event.target.value;
-    const id = selectedCharacter.id;
-    setCharacterEmotions((prev) => {
-      if (!value) {
-        if (!(id in prev)) return prev;
-        const { [id]: _, ...rest } = prev;
-        return rest;
-      }
-      return { ...prev, [id]: value };
-    });
   };
 
   return (
@@ -1507,90 +1555,79 @@ export const CharacterMenu = () => {
           </div>
         )}
 
-        {/* Emotion (dev) */}
-        <div className="px-4 pb-2">
-          <label className="block text-[10px] font-semibold text-gray-500 mb-1">Emotion (dev)</label>
-          <select
-            value={currentEmotion}
-            onChange={handleEmotionChange}
-            className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white/80 text-gray-700"
-          >
-            {EMOTION_OPTIONS.map((opt) => (
-              <option key={opt.value || "none"} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-        </div>
-
         {/* Actions */}
-        <div className="flex items-end justify-center gap-1 px-3 py-3 bg-white/95 backdrop-blur-sm rounded-b-2xl border-t border-gray-100">
-          <button
-            onClick={handleWave}
-            className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors group"
-          >
-            <span className="text-lg">{"\u{1F44B}"}</span>
-            <span className="text-[10px] text-gray-500 group-hover:text-gray-800 font-medium transition-colors">Wave</span>
-          </button>
-          <button
-            onClick={handleFollow}
-            className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl cursor-pointer transition-colors group ${
-              isFollowing ? "bg-blue-50" : "hover:bg-gray-100"
-            }`}
-          >
-            <span className="text-lg">{isFollowing ? "\u{1F441}\uFE0F" : "\u{1F4F7}"}</span>
-            <span className={`text-[10px] font-medium transition-colors ${
-              isFollowing
-                ? "text-blue-600"
-                : "text-gray-500 group-hover:text-gray-800"
-            }`}>{isFollowing ? "Unfollow" : "Follow"}</span>
-          </button>
-          {/* Bond-locked emotes — only show at max bond level */}
-          {bond?.maxLevel && (
-            <>
-              <div className="w-px h-8 bg-pink-200" />
-              <button
-                onClick={() => handleBondEmote("highfive")}
-                className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl cursor-pointer hover:bg-pink-50 transition-colors group"
-              >
-                <span className="text-lg">{"\u{1F64F}"}</span>
-                <span className="text-[10px] text-pink-400 group-hover:text-pink-600 font-medium transition-colors">Hi-Five</span>
-              </button>
-              <button
-                onClick={() => handleBondEmote("hug")}
-                className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl cursor-pointer hover:bg-pink-50 transition-colors group"
-              >
-                <span className="text-lg">{"\u{1FAC2}"}</span>
-                <span className="text-[10px] text-pink-400 group-hover:text-pink-600 font-medium transition-colors">Hug</span>
-              </button>
-            </>
-          )}
-          {selectedCharacter.isBot &&
-            selectedCharacter.isOfficialBot &&
-            !selectedCharacter.id?.startsWith("openclawbot-") && (
-            <>
-              <div className="w-px h-8 bg-gray-200" />
-              <button
-                onClick={handleTalkTo}
-                className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl cursor-pointer hover:bg-indigo-50 transition-colors group"
-              >
-                <span className="text-lg">{"\u{1F4AC}"}</span>
-                <span className="text-[10px] text-indigo-400 group-hover:text-indigo-600 font-medium transition-colors">Talk</span>
-              </button>
-              <button
-                onClick={handleShop}
-                className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl cursor-pointer hover:bg-amber-50 transition-colors group"
-              >
-                <span className="text-lg">{"\u{1F6D2}"}</span>
-                <span className="text-[10px] text-amber-500 group-hover:text-amber-700 font-medium transition-colors">Shop</span>
-              </button>
-              <button
-                onClick={handleBuildRequest}
-                className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl cursor-pointer hover:bg-green-50 transition-colors group"
-              >
-                <span className="text-lg">{"\u{1F528}"}</span>
-                <span className="text-[10px] text-green-500 group-hover:text-green-700 font-medium transition-colors">Build</span>
-              </button>
-            </>
-          )}
+        <div className="px-3 py-3 bg-gradient-to-b from-white/95 to-gray-50/95 backdrop-blur-sm rounded-b-2xl border-t border-gray-100">
+          <div className="grid grid-cols-4 gap-1.5">
+            <button
+              onClick={handleWave}
+              className="flex flex-col items-center gap-1 py-2 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 border border-gray-200/60 hover:border-gray-300 transition-all active:scale-95 group"
+            >
+              <span className="text-base leading-none">{"\u{1F44B}"}</span>
+              <span className="text-[9px] text-gray-500 group-hover:text-gray-800 font-semibold uppercase tracking-wide transition-colors">Wave</span>
+            </button>
+            <button
+              onClick={handleFollow}
+              className={`flex flex-col items-center gap-1 py-2 rounded-lg cursor-pointer border transition-all active:scale-95 group ${
+                isFollowing
+                  ? "bg-blue-50 border-blue-300 hover:bg-blue-100"
+                  : "bg-gray-50 hover:bg-gray-100 border-gray-200/60 hover:border-gray-300"
+              }`}
+            >
+              <span className="text-base leading-none">{isFollowing ? "\u{1F441}\uFE0F" : "\u{1F4F7}"}</span>
+              <span className={`text-[9px] font-semibold uppercase tracking-wide transition-colors ${
+                isFollowing
+                  ? "text-blue-600"
+                  : "text-gray-500 group-hover:text-gray-800"
+              }`}>{isFollowing ? "Unfollow" : "Follow"}</span>
+            </button>
+            {/* Bond-locked emotes — only show at max bond level */}
+            {bond?.maxLevel && (
+              <>
+                <button
+                  onClick={() => handleBondEmote("highfive")}
+                  className="flex flex-col items-center gap-1 py-2 rounded-lg cursor-pointer bg-pink-50/80 hover:bg-pink-100 border border-pink-200/60 hover:border-pink-300 transition-all active:scale-95 group"
+                >
+                  <span className="text-base leading-none">{"\u{1F64F}"}</span>
+                  <span className="text-[9px] text-pink-400 group-hover:text-pink-600 font-semibold uppercase tracking-wide transition-colors">Hi-Five</span>
+                </button>
+                <button
+                  onClick={() => handleBondEmote("hug")}
+                  className="flex flex-col items-center gap-1 py-2 rounded-lg cursor-pointer bg-pink-50/80 hover:bg-pink-100 border border-pink-200/60 hover:border-pink-300 transition-all active:scale-95 group"
+                >
+                  <span className="text-base leading-none">{"\u{1FAC2}"}</span>
+                  <span className="text-[9px] text-pink-400 group-hover:text-pink-600 font-semibold uppercase tracking-wide transition-colors">Hug</span>
+                </button>
+              </>
+            )}
+            {/* Bot-specific actions */}
+            {selectedCharacter.isBot &&
+              selectedCharacter.isOfficialBot &&
+              !selectedCharacter.id?.startsWith("openclawbot-") && (
+              <>
+                <button
+                  onClick={handleTalkTo}
+                  className="flex flex-col items-center gap-1 py-2 rounded-lg cursor-pointer bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200/60 hover:border-indigo-300 transition-all active:scale-95 group"
+                >
+                  <span className="text-base leading-none">{"\u{1F4AC}"}</span>
+                  <span className="text-[9px] text-indigo-400 group-hover:text-indigo-600 font-semibold uppercase tracking-wide transition-colors">Talk</span>
+                </button>
+                <button
+                  onClick={handleShop}
+                  className="flex flex-col items-center gap-1 py-2 rounded-lg cursor-pointer bg-amber-50/80 hover:bg-amber-100 border border-amber-200/60 hover:border-amber-300 transition-all active:scale-95 group"
+                >
+                  <span className="text-base leading-none">{"\u{1F6D2}"}</span>
+                  <span className="text-[9px] text-amber-500 group-hover:text-amber-700 font-semibold uppercase tracking-wide transition-colors">Shop</span>
+                </button>
+                <button
+                  onClick={handleBuildRequest}
+                  className="flex flex-col items-center gap-1 py-2 rounded-lg cursor-pointer bg-green-50/80 hover:bg-green-100 border border-green-200/60 hover:border-green-300 transition-all active:scale-95 group"
+                >
+                  <span className="text-base leading-none">{"\u{1F528}"}</span>
+                  <span className="text-[9px] text-green-500 group-hover:text-green-700 font-semibold uppercase tracking-wide transition-colors">Build</span>
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Close button */}

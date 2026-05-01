@@ -2,16 +2,23 @@ import pg from "pg";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 const { Pool } = pg;
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const REQUIRE_STRICT_DB_SSL =
   process.env.DB_SSL_REJECT_UNAUTHORIZED === "true" ||
-  (process.env.NODE_ENV === "production" && process.env.DB_SSL_REJECT_UNAUTHORIZED !== "false");
+  (IS_PRODUCTION && process.env.DB_SSL_REJECT_UNAUTHORIZED !== "false");
+
+// Local Postgres typically doesn't support SSL — only enable in production
+// or when explicitly requested via DB_SSL_REJECT_UNAUTHORIZED.
+const sslConfig = REQUIRE_STRICT_DB_SSL
+  ? true
+  : IS_PRODUCTION
+    ? { rejectUnauthorized: false }
+    : false;
 
 const pool = process.env.DATABASE_URL
   ? new Pool({
       connectionString: process.env.DATABASE_URL,
-      ssl: REQUIRE_STRICT_DB_SSL
-        ? true
-        : { rejectUnauthorized: false },
+      ...(sslConfig ? { ssl: sslConfig } : {}),
     })
   : null;
 

@@ -1,0 +1,104 @@
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  font-family: var(--ocw-font-pixel);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--ocw-deep);
+  background: var(--ocw-accent);
+  border: 3px solid var(--ocw-accent);
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  position: relative;
+  letter-spacing: 1px;
+}
+
+.btn-primary:hover {
+  background: var(--ocw-accent-light);
+  box-shadow: 0 0 20px var(--ocw-accent), 0 0 40px rgba(255, 170, 7, 0.3);
+  transform: translateY(-2px);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  font-family: var(--ocw-font-pixel);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--ocw-accent);
+  background: transparent;
+  border: 3px solid var(--ocw-accent);
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  letter-spacing: 1px;
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 170, 7, 0.1);
+  box-shadow: 0 0 15px rgba(255, 170, 7, 0.2);
+  transform: translateY(-2px);
+}
+
+.btn-cyan {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  font-family: var(--ocw-font-pixel);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--ocw-deep);
+  background: var(--ocw-cyan);
+  border: 3px solid var(--ocw-cyan);
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  letter-spacing: 1px;
+}
+
+.btn-cyan:hover {
+  box-shadow: 0 0 20px var(--ocw-cyan), 0 0 40px rgba(0, 229, 255, 0.3);
+  transform: translateY(-2px);
+}
+
+.btn-group {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.tag {
+  display: inline-block;
+  padding: 0.3rem 0.6rem;
+  font-family: var(--ocw-font-pixel);
+  font-size: 0.5rem;
+  text-transform: uppercase;
+  border: 2px solid;
+  letter-spacing: 1px;
+}
+
+.tag-accent {
+  color: var(--ocw-accent);
+  border-color: var(--ocw-accent);
+}
+
+.tag-cyan {
+  color: var(--ocw-cyan);
+  border-color: var(--ocw-cyan);
+}
+
+.tag-green {
+  color: var(--ocw-green);
+  border-color: var(--ocw-green);
+}
+
+.tag-pink {
+  color: var(--ocw-pink);
+  border-color: var(--ocw-pink);
+}

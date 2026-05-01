@@ -261,3 +261,145 @@ canvas {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ===== Emote & Heart Animations ===== */
+
+/* Pop-in with overshoot */
+@keyframes emote-pop-in {
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.15); opacity: 1; }
+  80% { transform: scale(0.95); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Gentle floating idle */
+@keyframes emote-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+/* Combined entrance class */
+.emote-bubble-enter {
+  animation: emote-pop-in 0.35s ease-out, emote-float 2s ease-in-out 0.35s infinite;
+}
+
+/* Hearts drift upward and fade */
+@keyframes heart-float-up {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-28px) scale(0.6); opacity: 0; }
+}
+
+.heart-float-container {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  width: 60px;
+  justify-content: center;
+}
+
+.heart-particle {
+  font-size: 14px;
+  animation: heart-float-up 2s ease-out infinite;
+}
+
+/* Bond emote sparkle rotation */
+@keyframes bond-sparkle {
+  0% { transform: rotate(0deg) scale(0); opacity: 0; }
+  20% { transform: rotate(72deg) scale(1.1); opacity: 1; }
+  80% { transform: rotate(288deg) scale(1); opacity: 1; }
+  100% { transform: rotate(360deg) scale(0); opacity: 0; }
+}
+
+/* Pulsing glow on bond emote bubbles */
+@keyframes bond-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(236, 72, 153, 0.3); }
+  50% { box-shadow: 0 0 18px rgba(236, 72, 153, 0.6); }
+}
+
+.bond-emote-bubble {
+  animation: emote-pop-in 0.35s ease-out, bond-glow 1.5s ease-in-out 0.35s infinite;
+  position: relative;
+}
+
+.bond-sparkle {
+  position: absolute;
+  font-size: 10px;
+  animation: bond-sparkle 1.2s ease-in-out infinite;
+  pointer-events: none;
+}
+.bond-sparkle:nth-child(1) { top: -8px; left: -4px; }
+.bond-sparkle:nth-child(2) { top: -6px; right: -4px; }
+.bond-sparkle:nth-child(4) { bottom: -8px; left: -2px; }
+.bond-sparkle:nth-child(5) { bottom: -6px; right: -2px; }
+
+/* ===== Avatar Overhead Bubbles ===== */
+
+/* Base bubble — shared by chat, emote, action, thinking */
+.avatar-bubble {
+  text-align: center;
+  padding: 8px 16px;
+  border-radius: 12px;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  animation: emote-pop-in 0.3s ease-out;
+  white-space: nowrap;
+}
+
+/* Chat variant — wider, allows word wrap */
+.avatar-bubble--chat {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  white-space: normal;
+  word-wrap: break-word;
+}
+
+/* Bot thinking dots */
+.avatar-bubble--thinking {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(165, 180, 252, 0.4);
+}
+
+/* Hover action buttons */
+.avatar-hover-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 500;
+  color: white;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  transition: transform 0.15s ease;
+}
+.avatar-hover-btn:hover { transform: scale(1.05); }
+.avatar-hover-btn:active { transform: scale(0.95); }
+
+/* Overhead container — stacks children vertically */
+.avatar-overhead-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+/* ===== Terminal / CRT Styles ===== */
+
+.terminal-content::-webkit-scrollbar { width: 6px; }
+.terminal-content::-webkit-scrollbar-track { background: rgba(17, 24, 39, 0.5); }
+.terminal-content::-webkit-scrollbar-thumb { background: rgba(52, 211, 153, 0.3); border-radius: 3px; }
+.terminal-content::-webkit-scrollbar-thumb:hover { background: rgba(52, 211, 153, 0.5); }
+
+@keyframes terminal-cursor-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+.terminal-cursor { animation: terminal-cursor-blink 1s step-end infinite; }

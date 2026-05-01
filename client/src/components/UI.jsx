@@ -27,6 +27,8 @@ import {
   objectivesAtom,
 } from "./SocketManager";
 import DirectMessagePanel, { dmPanelTargetAtom } from "./DirectMessagePanel";
+import GitHubPanel, { githubPanelOpenAtom } from "./GitHubPanel";
+import { inviteAgentModalAtom } from "./Room";
 import { renderAvatarPortrait } from "./Avatar";
 import soundManager from "../audio/SoundManager";
 
@@ -486,13 +488,13 @@ const HelpModal = ({ onClose }) => {
     basics: [
       { key: "Move", desc: "Click anywhere on the ground to walk there" },
       { key: "Chat", desc: "Type a message and press Enter or click Send" },
-      { key: "Dance", desc: "Click the music note button to dance" },
+      { key: "Emote", desc: "Click the smiley face button to dance, wave, and more" },
       { key: "Switch Rooms", desc: "Click the building icon to browse and join rooms" },
       { key: "Change Avatar", desc: "Click the person icon to pick a character or create a custom one" },
     ],
     social: [
       { key: "Click a Player", desc: "Opens their profile card with actions" },
-      { key: "Wave", desc: "Send a wave emote from the character menu" },
+      { key: "Wave", desc: "Send a wave from the Emote picker or character menu" },
       { key: "Follow", desc: "Follow a player and your camera tracks them" },
       { key: "Talk", desc: "Open a direct message chat with a bot or player" },
     ],
@@ -1349,6 +1351,7 @@ export const UI = () => {
   const [helpMode, setHelpMode] = useState(false);
   const [inviteMode, setInviteMode] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [emotePickerOpen, setEmotePickerOpen] = useState(false);
   const [tasksVisible, setTasksVisible] = useState(() => {
     try { return localStorage.getItem("clawland_tasks_visible") === "true"; } catch { return false; }
   });
@@ -1360,13 +1363,15 @@ export const UI = () => {
   const [questNotifications, setQuestNotifications] = useAtom(questNotificationsAtom);
   const [user] = useAtom(userAtom);
   const [itemsCatalog] = useAtom(itemsAtom);
-  const [, setSelectedShopItem] = useAtom(selectedShopItemAtom);
+
   const [roomTransition, setRoomTransition] = useAtom(roomTransitionAtom);
   const [map] = useAtom(mapAtom);
   const [dmUnreadCounts] = useAtom(dmUnreadCountsAtom);
   const [dmInboxOpen, setDmInboxOpen] = useAtom(dmInboxOpenAtom);
   const [dmPanelTarget, setDmPanelTarget] = useAtom(dmPanelTargetAtom);
   const [objectives] = useAtom(objectivesAtom);
+  const [githubPanelOpen, setGithubPanelOpen] = useAtom(githubPanelOpenAtom);
+  const [inviteAgentModal, setInviteAgentModal] = useAtom(inviteAgentModalAtom);
   // Safety timeout: force-clear the transition overlay if it stays active too long
   useEffect(() => {
     if (!roomTransition?.active) return;
@@ -1427,6 +1432,26 @@ export const UI = () => {
   const [chatMessage, setChatMessage] = useState("");
   const sendChatMessage = () => {
     if (chatMessage.length > 0) {
+      // Intercept /repo commands — never broadcast tokens or repo commands to chat
+      if (chatMessage.startsWith("/repo ")) {
+        const parts = chatMessage.slice(6).trim().split(/\s+/);
+        const subCmd = parts[0];
+        if (subCmd === "auth" && parts[1]) {
+          socket.emit("github:auth", { token: parts[1] });
+        } else if (subCmd === "connect" && parts[1]) {
+          const [owner, repo] = parts[1].split("/");
+          if (owner && repo) socket.emit("github:connectRepo", { owner, repo });
+        } else if (subCmd === "ask" && parts.slice(1).join(" ")) {
+          socket.emit("github:askQuestion", { question: parts.slice(1).join(" ") });
+        } else if (subCmd === "files") {
+          socket.emit("github:getFiles", { path: parts[1] || null });
+        } else if (subCmd === "pr" && parts.slice(1).join(" ")) {
+          socket.emit("github:createPR", { title: parts.slice(1).join(" ") });
+        }
+        setChatMessage("");
+        soundManager.play("chat_send");
+        return;
+      }
       socket.emit("chatMessage", chatMessage);
       setChatMessage("");
       soundManager.play("chat_send");
@@ -1501,9 +1526,8 @@ export const UI = () => {
             <div className="bg-pink-50/90 backdrop-blur-sm rounded-lg px-3 py-2 border border-pink-200 shadow-sm">
               <p className="text-[10px] font-bold text-pink-600 uppercase tracking-wide mb-1">Bond Goal</p>
               {objectives.bondMilestones.filter(m => !m.completed).slice(0, 1).map(m => (
-                <div key={m.id} className="flex items-center justify-between gap-1 mb-0.5">
-                  <span className="text-[10px] text-pink-700 truncate flex-1">{m.label}</span>
-                  <span className="text-[10px] text-pink-500 font-mono">+{m.reward}</span>
+                <div key={m.id} className="mb-0.5">
+                  <span className="text-[10px] text-pink-700 truncate">{m.label}</span>
                 </div>
               ))}
             </div>
@@ -1618,10 +1642,52 @@ export const UI = () => {
             itemsCatalog={itemsCatalog}
             onClose={() => setShopMode(false)}
             onSelect={(item) => {
-              setSelectedShopItem(item);
               setShopMode(false);
+              const newIndex = roomItems.length;
+              setRoomItems([
+                ...roomItems,
+                {
+                  ...item,
+                  gridPosition: [0, 0],
+                  tmp: true,
+                },
+              ]);
+              setDraggedItem(newIndex);
+              setDraggedItemRotation(item.rotation || 0);
             }}
           />
+        )}
+        {githubPanelOpen && <GitHubPanel onClose={() => setGithubPanelOpen(false)} />}
+        {inviteAgentModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto" onClick={() => setInviteAgentModal(false)}>
+            <div
+              className="bg-gray-950 border border-gray-800 rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl shadow-black/50"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 0-6.23.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0 1 12 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-gray-200 font-mono">No Agent in Room</h3>
+                  <p className="text-xs text-gray-500 font-mono">An OpenClaw agent is needed</p>
+                </div>
+              </div>
+              <p className="text-sm text-gray-400 font-mono leading-relaxed mb-5">
+                Invite an OpenClaw agent to this room to use the terminal. The agent can browse repos, fix issues, and create pull requests.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setInviteAgentModal(false)}
+                  className="flex-1 text-sm font-mono px-4 py-2.5 rounded-xl bg-gray-800/50 text-gray-400 border border-gray-700/50 hover:bg-gray-800 hover:text-gray-300 transition-all"
+                >
+                  Got it
+                </button>
+              </div>
+            </div>
+          </div>
         )}
         <div className="fixed inset-2 sm:inset-4 flex items-center justify-end flex-col pointer-events-none select-none z-10">
           {roomID && !shopMode && !buildMode && (
@@ -1657,6 +1723,13 @@ export const UI = () => {
                   />
                 </svg>
               </button>
+            </div>
+          )}
+          {/* Wall item snap tooltip (first time only) */}
+          {buildMode && draggedItem !== null && roomItems[draggedItem]?.wall && map?.size?.[0] <= 30 &&
+            !localStorage.getItem('wallItemHintSeen') && (
+            <div className="bg-black/80 text-white text-sm px-4 py-2 rounded-lg pointer-events-none animate-pulse mb-2">
+              Wall items snap to the nearest wall
             </div>
           )}
           <div className="flex items-center flex-wrap justify-center gap-2 sm:gap-4 pointer-events-auto">
@@ -1753,14 +1826,11 @@ export const UI = () => {
                   </button>
                 )}
 
-                {/* Divider */}
-                <div className="w-px h-8 bg-gray-200 mx-1 hidden sm:block" />
-
                 {/* More Menu */}
                 <div className="relative">
                   <button
                     className={`flex flex-col items-center gap-0.5 px-2 sm:px-3 py-1.5 rounded-xl cursor-pointer transition-colors group ${moreMenuOpen ? "bg-slate-100" : "hover:bg-slate-50"}`}
-                    onClick={() => { soundManager.play("button_click"); setMoreMenuOpen(!moreMenuOpen); }}
+                    onClick={() => { soundManager.play("button_click"); setMoreMenuOpen(!moreMenuOpen); setEmotePickerOpen(false); }}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 sm:w-6 sm:h-6 text-slate-500 group-hover:text-slate-700 transition-colors">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM18.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
@@ -1781,6 +1851,22 @@ export const UI = () => {
                           transition={{ duration: 0.15 }}
                           className="absolute bottom-full mb-2 right-0 w-44 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden z-[20]"
                         >
+                          {/* Emote */}
+                          {roomID && (
+                            <>
+                              <button
+                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-purple-50 transition-colors text-left"
+                                onClick={() => { soundManager.play("button_click"); setEmotePickerOpen(true); setMoreMenuOpen(false); }}
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-purple-400">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm-.375 0h.008v.015h-.008V9.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75zm-.375 0h.008v.015h-.008V9.75z" />
+                                </svg>
+                                <span className="text-sm text-gray-700 font-medium">Emote</span>
+                              </button>
+                              <div className="h-px bg-gray-100" />
+                            </>
+                          )}
+
                           {/* Invite */}
                           {roomID && (
                             <>
@@ -1792,22 +1878,6 @@ export const UI = () => {
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM3 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 019.374 21c-2.331 0-4.512-.645-6.374-1.766z" />
                                 </svg>
                                 <span className="text-sm text-gray-700 font-medium">Invite</span>
-                              </button>
-                              <div className="h-px bg-gray-100" />
-                            </>
-                          )}
-
-                          {/* Dance */}
-                          {roomID && (
-                            <>
-                              <button
-                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-pink-50 transition-colors text-left"
-                                onClick={() => { soundManager.play("button_click"); socket.emit("dance"); setMoreMenuOpen(false); }}
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-pink-400">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 9l10.5-3m0 6.553v3.75a2.25 2.25 0 01-1.632 2.163l-1.32.377a1.803 1.803 0 11-.99-3.467l2.31-.66a2.25 2.25 0 001.632-2.163zm0 0V2.25L9 5.25v10.303m0 0v3.75a2.25 2.25 0 01-1.632 2.163l-1.32.377a1.803 1.803 0 01-.99-3.467l2.31-.66A2.25 2.25 0 009 15.553z" />
-                                </svg>
-                                <span className="text-sm text-gray-700 font-medium">Dance</span>
                               </button>
                               <div className="h-px bg-gray-100" />
                             </>
@@ -1867,6 +1937,54 @@ export const UI = () => {
                     )}
                   </AnimatePresence>
                 </div>
+
+                {/* Emote Picker Popup (opened from More menu) */}
+                <AnimatePresence>
+                  {emotePickerOpen && (
+                    <>
+                      <div className="fixed inset-0 z-[15]" onClick={() => setEmotePickerOpen(false)} />
+                      <motion.div
+                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute bottom-full mb-2 right-0 w-64 sm:w-72 bg-white/95 backdrop-blur-md rounded-xl shadow-xl border border-gray-200 overflow-hidden z-[20] p-2"
+                      >
+                        <div className="grid grid-cols-5 gap-1">
+                          {[
+                            { id: "dance",    emoji: "\u{1F483}", label: "Dance" },
+                            { id: "wave",     emoji: "\u{1F44B}", label: "Wave" },
+                            { id: "nod",      emoji: "\u{1F642}", label: "Nod" },
+                            { id: "happy",    emoji: "\u{1F60A}", label: "Happy" },
+                            { id: "laugh",    emoji: "\u{1F602}", label: "Laugh" },
+                            { id: "love",     emoji: "\u2764\uFE0F", label: "Love" },
+                            { id: "sad",      emoji: "\u{1F622}", label: "Sad" },
+                            { id: "think",    emoji: "\u{1F914}", label: "Think" },
+                            { id: "clap",     emoji: "\u{1F44F}", label: "Clap" },
+                            { id: "thumbsup", emoji: "\u{1F44D}", label: "Thumbs Up" },
+                          ].map((e) => (
+                            <button
+                              key={e.id}
+                              className="flex flex-col items-center gap-0.5 p-1.5 rounded-lg hover:bg-purple-50 transition-colors cursor-pointer"
+                              onClick={() => {
+                                soundManager.play("button_click");
+                                if (e.id === "dance") {
+                                  socket.emit("dance");
+                                } else {
+                                  socket.emit("emote:play", e.id);
+                                }
+                                setEmotePickerOpen(false);
+                              }}
+                            >
+                              <span className="text-lg sm:text-xl">{e.emoji}</span>
+                              <span className="text-[9px] sm:text-[10px] text-gray-600 leading-tight">{e.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
               </div>
             )}
             {/* SHOP */}
@@ -1892,8 +2010,9 @@ export const UI = () => {
               </button>
             )}
 
-            {/* ROTATE */}
-            {buildMode && !shopMode && draggedItem !== null && (
+            {/* ROTATE (hidden for wall items in interior rooms — rotation is auto-determined) */}
+            {buildMode && !shopMode && draggedItem !== null &&
+              !(roomItems[draggedItem]?.wall && map?.size?.[0] <= 30) && (
               <button
                 className="p-3 sm:p-4 rounded-full bg-white/90 text-gray-700 drop-shadow-md cursor-pointer hover:bg-white hover:text-gray-900 transition-colors border border-gray-200"
                 onClick={() =>

@@ -6,7 +6,7 @@ import {
 
 import { useThree } from "@react-three/fiber";
 import { atom, useAtom } from "jotai";
-import React, { Suspense, useEffect, useMemo, useState, Component } from "react";
+import React, { Suspense, useEffect, useMemo, useRef, useState, Component } from "react";
 import { useGrid } from "../hooks/useGrid";
 import { Avatar } from "./Avatar";
 import { TownHall } from "./TownHall";
@@ -29,7 +29,11 @@ class AvatarErrorBoundary extends Component {
     }
   }
   render() {
-    if (this.state.hasError) return null;
+    if (this.state.hasError) {
+      // Re-render with local fallback avatar instead of nothing
+      if (this.props.fallback) return this.props.fallback;
+      return null;
+    }
     return this.props.children;
   }
 }
@@ -41,9 +45,14 @@ import {
   draggedItemAtom,
   draggedItemRotationAtom,
   shopModeAtom,
-  selectedShopItemAtom,
 } from "./UI";
+import { githubPanelOpenAtom } from "./GitHubPanel";
+import { agentFixStatusAtom } from "./SocketManager";
 import soundManager from "../audio/SoundManager";
+
+const COMPUTER_ITEMS = new Set(["laptop", "deskComputer", "computerScreen", "computerKeyboard"]);
+
+export const inviteAgentModalAtom = atom(false);
 
 export const roomItemsAtom = atom([]);
 
@@ -113,6 +122,25 @@ const CharacterList = React.memo(() => {
         <AvatarErrorBoundary
           key={`${character.id}-${character.avatarUrl || ""}`}
           onError={() => handleAvatarLoadError(character)}
+          fallback={
+            character.avatarUrl !== LOCAL_FALLBACK_AVATAR_URL ? (
+              <Suspense>
+                <Avatar
+                  id={character.id}
+                  gridPosition={character.position}
+                  hairColor={character.hairColor}
+                  topColor={character.topColor}
+                  bottomColor={character.bottomColor}
+                  avatarUrl={LOCAL_FALLBACK_AVATAR_URL}
+                  name={character.name}
+                  isBot={character.isBot}
+                  isPet={character.isPet}
+                  leaving={character.leaving}
+                  showHtmlOverlay={htmlVisibleSet.has(character.id)}
+                />
+              </Suspense>
+            ) : null
+          }
         >
           <Suspense>
             <Avatar
@@ -124,6 +152,7 @@ const CharacterList = React.memo(() => {
               avatarUrl={character.avatarUrl}
               name={character.name}
               isBot={character.isBot}
+              isPet={character.isPet}
               leaving={character.leaving}
               showHtmlOverlay={htmlVisibleSet.has(character.id)}
             />
@@ -136,9 +165,11 @@ const CharacterList = React.memo(() => {
 
 export const Room = () => {
   const [buildMode, setBuildMode] = useAtom(buildModeAtom);
-  const [shopMode, setShopMode] = useAtom(shopModeAtom);
+  const [shopMode] = useAtom(shopModeAtom);
   const [map] = useAtom(mapAtom);
   const [items, setItems] = useAtom(roomItemsAtom);
+  const itemsRef = useRef(items);
+  useEffect(() => { itemsRef.current = items; }, [items]);
   const [onFloor, setOnFloor] = useState(false);
   useCursor(onFloor);
   const { vector3ToGrid, gridToVector3 } = useGrid();
@@ -147,9 +178,16 @@ export const Room = () => {
   const [user] = useAtom(userAtom);
   const [, setShowRoomSelector] = useAtom(showRoomSelectorAtom);
   const [itemsCatalog] = useAtom(itemsAtom);
+  const [, setGithubPanelOpen] = useAtom(githubPanelOpenAtom);
+  const [, setInviteAgentModal] = useAtom(inviteAgentModalAtom);
+  const [agentFixStatus] = useAtom(agentFixStatusAtom);
+  const [characters] = useAtom(charactersAtom);
+  const hasBotInRoom = useMemo(() => characters.some((c) => c.isBot), [characters]);
 
   useEffect(() => {
-    setItems(map.items);
+    if (!buildMode) {
+      setItems(map.items);
+    }
   }, [map]);
 
   const onPlaneClicked = (e) => {
@@ -168,14 +206,21 @@ export const Room = () => {
     } else {
       if (draggedItem !== null) {
         if (canDrop) {
+          const isWallDrop = items[draggedItem]?.wall && map.size[0] <= 30;
           setItems((prev) => {
             const newItems = [...prev];
             delete newItems[draggedItem].tmp;
-            newItems[draggedItem].gridPosition = vector3ToGrid(e.point);
+            const finalPosition = isWallDrop
+              ? dragPosition
+              : vector3ToGrid(e.point);
+            newItems[draggedItem].gridPosition = finalPosition;
             newItems[draggedItem].rotation = draggedItemRotation;
             return newItems;
           });
           soundManager.play("item_place");
+          if (isWallDrop) {
+            try { localStorage.setItem('wallItemHintSeen', '1'); } catch {}
+          }
         }
         setDraggedItem(null);
       }
@@ -188,10 +233,12 @@ export const Room = () => {
   );
   const [dragPosition, setDragPosition] = useState([0, 0]);
   const [canDrop, setCanDrop] = useState(false);
+  const [activeWall, setActiveWall] = useState(null);
 
   useEffect(() => {
     if (draggedItem === null) {
       setItems((prev) => prev.filter((item) => !item.tmp));
+      setActiveWall(null);
     }
   }, [draggedItem]);
 
@@ -201,6 +248,7 @@ export const Room = () => {
       return;
     }
     const item = items[draggedItem];
+    if (!item) return;
     const width =
       draggedItemRotation === 1 || draggedItemRotation === 3
         ? item.size[1]
@@ -225,6 +273,67 @@ export const Room = () => {
     ) {
       droppable = false;
     }
+    // check if wall item is on a wall edge (interior rooms only)
+    if (item.wall && map.size[0] <= 30 && map.size[1] <= 30) {
+      const maxX = map.size[0] * map.gridDivision;
+      const maxY = map.size[1] * map.gridDivision;
+      const touchesWall = dragPosition[0] === 0 || dragPosition[1] === 0 ||
+        (dragPosition[0] + width === maxX) || (dragPosition[1] + height === maxY);
+      if (!touchesWall) droppable = false;
+    }
+
+    // check wall-vs-wall collisions
+    if (item.wall) {
+      items.forEach((otherItem, idx) => {
+        if (idx === draggedItem) return;
+        if (!otherItem.wall) return;
+
+        const otherWidth =
+          otherItem.rotation === 1 || otherItem.rotation === 3
+            ? otherItem.size[1] : otherItem.size[0];
+        const otherHeight =
+          otherItem.rotation === 1 || otherItem.rotation === 3
+            ? otherItem.size[0] : otherItem.size[1];
+        if (
+          dragPosition[0] < otherItem.gridPosition[0] + otherWidth &&
+          dragPosition[0] + width > otherItem.gridPosition[0] &&
+          dragPosition[1] < otherItem.gridPosition[1] + otherHeight &&
+          dragPosition[1] + height > otherItem.gridPosition[1]
+        ) {
+          droppable = false;
+        }
+      });
+
+      // Wall edge capacity check (40% of edge length)
+      if (droppable && map.size[0] <= 30 && map.size[1] <= 30) {
+        const edgeCells = { front: 0, back: 0, left: 0, right: 0 };
+        const capMaxX = map.size[0] * map.gridDivision;
+        const capMaxY = map.size[1] * map.gridDivision;
+        items.forEach((otherItem, idx) => {
+          if (idx === draggedItem) return;
+          if (!otherItem.wall) return;
+          const ow = otherItem.rotation === 1 || otherItem.rotation === 3 ? otherItem.size[1] : otherItem.size[0];
+          const oh = otherItem.rotation === 1 || otherItem.rotation === 3 ? otherItem.size[0] : otherItem.size[1];
+          const cells = ow * oh;
+          if (otherItem.gridPosition[1] === 0) edgeCells.front += cells;
+          if (otherItem.gridPosition[0] === 0) edgeCells.left += cells;
+          if (otherItem.gridPosition[1] + oh === capMaxY) edgeCells.back += cells;
+          if (otherItem.gridPosition[0] + ow === capMaxX) edgeCells.right += cells;
+        });
+        const newCells = width * height;
+        if (dragPosition[1] === 0) edgeCells.front += newCells;
+        if (dragPosition[0] === 0) edgeCells.left += newCells;
+        if (dragPosition[1] + height === capMaxY) edgeCells.back += newCells;
+        if (dragPosition[0] + width === capMaxX) edgeCells.right += newCells;
+        const capFrontBack = Math.floor(capMaxX * 0.4);
+        const capLeftRight = Math.floor(capMaxY * 0.4);
+        if (edgeCells.front > capFrontBack || edgeCells.back > capFrontBack ||
+            edgeCells.left > capLeftRight || edgeCells.right > capLeftRight) {
+          droppable = false;
+        }
+      }
+    }
+
     // check if item is not colliding with other items
     if (!item.walkable && !item.wall) {
       items.forEach((otherItem, idx) => {
@@ -265,71 +374,58 @@ export const Room = () => {
     if (buildMode) {
       setItems(map?.items || []);
     } else {
-      socket.emit("itemsUpdate", items);
+      socket.emit("itemsUpdate", itemsRef.current);
     }
   }, [buildMode]);
-
-  const [selectedShopItem, setSelectedShopItem] = useAtom(selectedShopItemAtom);
-
-  const onItemSelected = (item) => {
-    setShopMode(false);
-
-    setItems((prev) => [
-      ...prev,
-      {
-        ...item,
-        gridPosition: [0, 0],
-        tmp: true,
-      },
-    ]);
-    setDraggedItem(items.length);
-    setDraggedItemRotation(item.rotation || 0);
-  };
-
-  // Watch for item selections from the HTML shop panel
-  useEffect(() => {
-    if (selectedShopItem) {
-      onItemSelected(selectedShopItem);
-      setSelectedShopItem(null);
-    }
-  }, [selectedShopItem]);
 
   return (
     <>
       {buildMode &&
         items.map((item, idx) => (
-          <Item
-            key={`${item.name}-${idx}`}
-            item={item}
-            onClick={() => {
-              setDraggedItem((prev) => {
-                if (prev === null) soundManager.play("item_pickup");
-                return prev === null ? idx : prev;
-              });
-              setDraggedItemRotation(item.rotation || 0);
-            }}
-            isDragging={draggedItem === idx}
-            dragPosition={dragPosition}
-            dragRotation={draggedItemRotation}
-            canDrop={canDrop}
-          />
+          <Suspense key={`${item.name}-${idx}`}>
+            <Item
+              item={item}
+              onClick={() => {
+                setDraggedItem((prev) => {
+                  if (prev === null) soundManager.play("item_pickup");
+                  return prev === null ? idx : prev;
+                });
+                setDraggedItemRotation(item.rotation || 0);
+              }}
+              isDragging={draggedItem === idx}
+              dragPosition={dragPosition}
+              dragRotation={draggedItemRotation}
+              canDrop={canDrop}
+            />
+          </Suspense>
         ))}
       {!buildMode &&
         map.items.map((item, idx) => {
           const def = itemsCatalog?.[item.name];
           const isSittable = def && def.sittable;
+          const isComputer = COMPUTER_ITEMS.has(item.name);
           return (
-            <ProximityItem
-              key={`${item.name}-${idx}`}
-              gridPosition={item.gridPosition}
-              size={item.size}
-              rotation={item.rotation || 0}
-            >
-              <Item
-                item={item}
-                onSitClick={isSittable ? () => socket.emit("sit", idx) : undefined}
-              />
-            </ProximityItem>
+            <Suspense key={`${item.name}-${idx}`}>
+              <ProximityItem
+                gridPosition={item.gridPosition}
+                size={item.size}
+                rotation={item.rotation || 0}
+              >
+                <Item
+                  item={item}
+                  onSitClick={isSittable ? () => socket.emit("sit", idx) : undefined}
+                  onClick={isComputer ? () => {
+                    if (hasBotInRoom) {
+                      setGithubPanelOpen(true);
+                    } else {
+                      setInviteAgentModal(true);
+                    }
+                  } : undefined}
+                  isComputer={isComputer}
+                  agentWorking={isComputer && hasBotInRoom && agentFixStatus?.running}
+                />
+              </ProximityItem>
+            </Suspense>
           );
         })}
 
@@ -341,7 +437,54 @@ export const Room = () => {
           onPointerEnter={() => setOnFloor(true)}
           onPointerLeave={() => setOnFloor(false)}
           onPointerMove={(e) => {
-            const newPosition = vector3ToGrid(e.point);
+            let newPosition = vector3ToGrid(e.point);
+
+            // Snap wall items to nearest wall edge in interior rooms
+            if (draggedItem !== null && items[draggedItem]?.wall && map.size[0] <= 30) {
+              const item = items[draggedItem];
+              const maxX = map.size[0] * map.gridDivision;
+              const maxY = map.size[1] * map.gridDivision;
+              const cx = newPosition[0];
+              const cy = newPosition[1];
+
+              // Distance from cursor to each wall
+              const distFront = cy;             // gy=0
+              const distLeft = cx;              // gx=0
+              const distBack = maxY - cy;       // gy+h=maxY
+              const distRight = maxX - cx;      // gx+w=maxX
+
+              const minDist = Math.min(distFront, distLeft, distBack, distRight);
+
+              let wallRot, snapX, snapY, wallName;
+              if (minDist === distFront) {
+                wallRot = 0; wallName = 'front';
+                const w = item.size[0];
+                snapX = Math.max(0, Math.min(cx, maxX - w));
+                snapY = 0;
+              } else if (minDist === distLeft) {
+                wallRot = 1; wallName = 'left';
+                const w = item.size[1];
+                const h = item.size[0];
+                snapX = 0;
+                snapY = Math.max(0, Math.min(cy, maxY - h));
+              } else if (minDist === distBack) {
+                wallRot = 2; wallName = 'back';
+                const w = item.size[0];
+                const h = item.size[1];
+                snapX = Math.max(0, Math.min(cx, maxX - w));
+                snapY = maxY - h;
+              } else {
+                wallRot = 3; wallName = 'right';
+                const w = item.size[1];
+                snapX = maxX - w;
+                snapY = Math.max(0, Math.min(cy, maxY - item.size[0]));
+              }
+              setActiveWall(wallName);
+
+              newPosition = [snapX, snapY];
+              setDraggedItemRotation(wallRot);
+            }
+
             if (
               !dragPosition ||
               newPosition[0] !== dragPosition[0] ||
@@ -464,6 +607,43 @@ export const Room = () => {
               <meshStandardMaterial color="#e8e0d4" />
             </mesh>
           </group>
+        </group>
+      )}
+      {/* Interior walls in build mode with wall proximity highlight */}
+      {buildMode && map.size[0] <= 30 && (
+        <group raycast={() => null}>
+          <mesh position={[map.size[0] / 2, 2, -0.15]} castShadow receiveShadow>
+            <boxGeometry args={[map.size[0] + 0.3, 4, 0.3]} />
+            <meshStandardMaterial
+              color="#e8e0d4"
+              emissive={activeWall === 'front' ? '#4a9eff' : '#000000'}
+              emissiveIntensity={activeWall === 'front' ? 0.3 : 0}
+            />
+          </mesh>
+          <mesh position={[map.size[0] / 2, 2, map.size[1] + 0.15]} castShadow receiveShadow>
+            <boxGeometry args={[map.size[0] + 0.3, 4, 0.3]} />
+            <meshStandardMaterial
+              color="#e8e0d4"
+              emissive={activeWall === 'back' ? '#4a9eff' : '#000000'}
+              emissiveIntensity={activeWall === 'back' ? 0.3 : 0}
+            />
+          </mesh>
+          <mesh position={[-0.15, 2, map.size[1] / 2]} castShadow receiveShadow>
+            <boxGeometry args={[0.3, 4, map.size[1] + 0.3]} />
+            <meshStandardMaterial
+              color="#e8e0d4"
+              emissive={activeWall === 'left' ? '#4a9eff' : '#000000'}
+              emissiveIntensity={activeWall === 'left' ? 0.3 : 0}
+            />
+          </mesh>
+          <mesh position={[map.size[0] + 0.15, 2, map.size[1] / 2]} castShadow receiveShadow>
+            <boxGeometry args={[0.3, 4, map.size[1] + 0.3]} />
+            <meshStandardMaterial
+              color="#e8e0d4"
+              emissive={activeWall === 'right' ? '#4a9eff' : '#000000'}
+              emissiveIntensity={activeWall === 'right' ? 0.3 : 0}
+            />
+          </mesh>
         </group>
       )}
     </>

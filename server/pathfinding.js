@@ -2,7 +2,7 @@
 // Extracted from index.js — pure functions reading room.grid
 
 import pathfindingLib from "pathfinding";
-import { getBuildingFootprints } from "./shared/roomConstants.js";
+import { getBuildingFootprints } from "../shared/roomConstants.js";
 
 const finder = new pathfindingLib.AStarFinder({
   allowDiagonal: true,
@@ -16,6 +16,15 @@ export const findPath = (room, start, end) => {
   const s = [clamp(start[0], maxX), clamp(start[1], maxY)];
   const e = [clamp(end[0], maxX), clamp(end[1], maxY)];
   const gridClone = room.grid.clone();
+  // Mark occupied cells as non-walkable so paths route around stationary characters
+  if (room.cellOccupancy instanceof Map && room.cellOccupancy.size > 0) {
+    for (const [key] of room.cellOccupancy) {
+      const [ox, oy] = key.split(",").map(Number);
+      // Skip start and end cells so the path remains viable
+      if ((ox === s[0] && oy === s[1]) || (ox === e[0] && oy === e[1])) continue;
+      gridClone.setWalkableAt(ox, oy, false);
+    }
+  }
   const path = finder.findPath(s[0], s[1], e[0], e[1], gridClone);
   return pathfindingLib.Util.compressPath(path);
 };

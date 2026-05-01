@@ -13,6 +13,8 @@ bot-registry.json
 # Runtime data
 bonds.json
 users.json
+github-store.json
+.github-store-key
 
 # Tool/planning directories
 .claude/

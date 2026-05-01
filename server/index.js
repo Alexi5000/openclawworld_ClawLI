@@ -1,9 +1,10 @@
+import "dotenv/config";
 import fs from "fs";
 import http from "http";
 import pathfinding from "pathfinding";
 import bcrypt from "bcrypt";
 import { Server } from "socket.io";
-import { ROOM_ZONES, scaleZoneArea } from "../shared/roomConstants.js";
+import { ROOM_ZONES, scaleZoneArea, resolveSlotItem, ROOM_STYLES } from "../shared/roomConstants.js";
 import { initDb, isDbAvailable, listRooms as dbListRooms, countRooms as dbCountRooms, getNextApartmentNumber as dbGetNextApartmentNumber } from "./db.js";
 import {
   getCachedRoom, setCachedRoom, getAllCachedRooms, getOrLoadRoom,
@@ -12,18 +13,25 @@ import {
 
 // --- Extracted modules ---
 import { createRateLimiter, isValidWebhookUrl, isSafeWebhookUrl, hashApiKey } from "./rateLimiter.js";
-import { items, itemsCatalog, ALLOWED_EMOTES, randomAvatarUrl, sanitizeAvatarUrl } from "./itemCatalog.js";
-import { ensureSeatMaps, getSitSpots, unsitCharacter, normalizeAngle, DEFAULT_SIT_FACING_OFFSET } from "./sittingSystem.js";
+import { items, itemsCatalog, ALLOWED_EMOTES, randomAvatarUrl, sanitizeAvatarUrl, isValidWallPlacement } from "./itemCatalog.js";
+import { ensureSeatMaps, getSitSpots, unsitCharacter, normalizeAngle, DEFAULT_SIT_FACING_OFFSET, ensureCellOccupancy, cellKey, occupyCell, vacateCell, isCellOccupied, trimPathToFreeCell } from "./sittingSystem.js";
 import { findPath, updateGrid, addItemToGrid, removeItemFromGrid } from "./pathfinding.js";
 import { bonds, BOND_LEVELS, bondKey, getBondLevel, loadBonds, saveBonds, applyBondProgress } from "./bondSystem.js";
 import { botRegistry, botSockets, loadBotRegistry, saveBotRegistry, sendWebhook, syncAgentsToBotRegistry, syncBotRegistryToAgents } from "./botRegistry.js";
 import { loadUserStore, ensureUser, getUser, createUserId, touchUser, validateSessionToken, setSessionToken, createSessionToken } from "./userStore.js";
 import { initObjectives, checkBondMilestones, objectivesPayload, cleanupObjectives } from "./objectiveSystem.js";
+import { initNeeds, getNeeds, satisfyNeeds, applySocialBoost, suggestInteraction, cleanupNeeds } from "./needsEngine.js";
+import { addRoutine, listRoutines, cancelRoutine, cleanupRoutines } from "./botScheduler.js";
 import { createHttpHandler } from "./httpRoutes.js";
 import { registerSocketHandlers } from "./socketHandlers.js";
+import { smartPlaceItem, suggestPlacements, analyzeRoomLayout, computeLayoutScore } from "./placementEngine.js";
+import * as githubService from "./githubService.js";
+import * as githubStore from "./githubStore.js";
+import * as llmBridge from "./llmBridge.js";
+import { startWandering, stopWandering, cleanupStalePets } from "./petSystem.js";
 
 // --- Configuration ---
-const origin = process.env.CLIENT_URL || "http://localhost:5173";
+const origin = process.env.CLIENT_URL || "http://localhost:5174";
 const EXTRA_ALLOWED_ORIGIN = process.env.EXTRA_ALLOWED_ORIGIN || "";
 const SERVER_URL = process.env.SERVER_URL || "http://localhost:3000";
 const DEV_MODE = process.env.DEV_MODE === "1"; // Enables extra local-only diagnostics in health output
@@ -51,6 +59,7 @@ const limitBotKeyRotate = createRateLimiter(3, 3600_000);
 loadBotRegistry();
 loadBonds();
 loadUserStore();
+githubStore.loadGithubStore();
 
 // Restore verified bots from DB into registry (recovers from lost JSON), then sync registry to DB
 syncAgentsToBotRegistry()
@@ -93,6 +102,7 @@ const generateRandomPosition = (room) => {
     const x = Math.floor(Math.random() * room.size[0] * room.gridDivision);
     const y = Math.floor(Math.random() * room.size[1] * room.gridDivision);
     if (room.grid.isWalkableAt(x, y)) {
+      if (room.cellOccupancy instanceof Map && room.cellOccupancy.has(`${x},${y}`)) continue;
       return [x, y];
     }
   }
@@ -132,28 +142,8 @@ const computeRoomStyle = (room) => {
 };
 
 const tryPlaceItemInRoom = (room, itemName, area) => {
-  const itemDef = items[itemName];
-  if (!itemDef) return false;
-  const rot = itemDef.rotation ?? 0;
-  const width = rot === 1 || rot === 3 ? itemDef.size[1] : itemDef.size[0];
-  const height = rot === 1 || rot === 3 ? itemDef.size[0] : itemDef.size[1];
-  const maxGrid = room.size[0] * room.gridDivision;
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const gx = area.x[0] + Math.floor(Math.random() * (area.x[1] - area.x[0] - width));
-    const gy = area.y[0] + Math.floor(Math.random() * (area.y[1] - area.y[0] - height));
-    if (gx < 0 || gy < 0 || gx + width > maxGrid || gy + height > maxGrid) continue;
-    if (!itemDef.walkable && !itemDef.wall) {
-      let blocked = false;
-      for (let x = 0; x < width && !blocked; x++) {
-        for (let y = 0; y < height && !blocked; y++) {
-          if (!room.grid.isWalkableAt(gx + x, gy + y)) blocked = true;
-        }
-      }
-      if (blocked) continue;
-    }
-    const newItem = { name: itemDef.name, size: itemDef.size, gridPosition: [gx, gy], rotation: rot };
-    if (itemDef.walkable) newItem.walkable = true;
-    if (itemDef.wall) newItem.wall = true;
+  const newItem = smartPlaceItem(room, itemName, area);
+  if (newItem) {
     room.items.push(newItem);
     addItemToGrid(room, newItem);
     return true;
@@ -187,7 +177,7 @@ const persistRooms = (room) => {
   const allRooms = getAllCachedRooms();
   const toPersist = allRooms
     .filter(r => !r.generated || (r.generated && (r.claimedBy || (r.items && r.items.length > 0))))
-    .map(({ characters, grid, seatOccupancy, characterSeats, ...rest }) => rest);
+    .map(({ characters, grid, seatOccupancy, characterSeats, cellOccupancy, ...rest }) => rest);
   fs.writeFileSync("rooms.json", JSON.stringify(toPersist, null, 2));
 };
 
@@ -294,11 +284,18 @@ const httpHandler = createHttpHandler({
   rooms, items, itemsCatalog, botRegistry, botSockets, saveBotRegistry,
   sendWebhook, hashApiKey, isValidWebhookUrl, isSafeWebhookUrl, limitHttp, limitBotRegister, limitBotKeyRotate,
   randomAvatarUrl, ALLOWED_EMOTES, ALLOWED_ORIGINS, SERVER_URL,
-  ROOM_ZONES, scaleZoneArea, findPath, updateGrid, addItemToGrid, persistRooms,
+  ROOM_ZONES, scaleZoneArea, resolveSlotItem, ROOM_STYLES,
+  findPath, updateGrid, addItemToGrid, removeItemFromGrid, persistRooms,
   computeRoomStyle, tryPlaceItemInRoom, getCachedRoom, generateRandomPosition, stripCharacters,
   pendingInvites, DEV_MODE, OPEN_ACCESS,
   TRUST_PROXY,
   addAgentThought,
+  bonds, bondKey, getBondLevel, BOND_LEVELS,
+  initNeeds, getNeeds, satisfyNeeds, applySocialBoost, suggestInteraction, cleanupNeeds,
+  addRoutine, listRoutines, cancelRoutine, cleanupRoutines,
+  suggestPlacements, analyzeRoomLayout, computeLayoutScore,
+  githubService, githubStore, llmBridge,
+  ensureCellOccupancy, cellKey, occupyCell, vacateCell, isCellOccupied, trimPathToFreeCell,
 });
 
 const httpServer = http.createServer(async (req, res) => {
@@ -344,6 +341,7 @@ const socketHelpers = registerSocketHandlers({
   botRegistry, botSockets, sendWebhook, saveBotRegistry,
   tryPlaceItemInRoom,
   initObjectives, checkBondMilestones, objectivesPayload, cleanupObjectives,
+  initNeeds, applySocialBoost, cleanupNeeds,
   getCachedRoom, getAllCachedRooms, getOrLoadRoom, setCachedRoom,
   scheduleEviction, cancelEviction, hydrateRoom,
   isDbAvailable, dbListRooms, dbCountRooms, dbGetNextApartmentNumber, limitChat, hashApiKey,
@@ -353,7 +351,13 @@ const socketHelpers = registerSocketHandlers({
   OPEN_ACCESS,
   TRUST_PROXY,
   agentThoughts, addAgentThought,
+  githubService, githubStore, llmBridge,
+  ensureCellOccupancy, cellKey, occupyCell, vacateCell, isCellOccupied, trimPathToFreeCell,
 });
 
 // Patch socketHelpers into httpHandler's deps for agent messaging
 httpHandler._deps.socketHelpers = socketHelpers;
+
+// --- Pet system: start wandering + stale cleanup ---
+startWandering(io, rooms, findPath);
+setInterval(() => cleanupStalePets(io, rooms), 60_000);

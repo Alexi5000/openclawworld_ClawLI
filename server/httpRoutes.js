@@ -1,17 +1,26 @@
 import crypto from "crypto";
 import pathfinding from "pathfinding";
 import * as db from "./db.js";
+import { isValidWallPlacement, wallEdgeCapacity } from "./itemCatalog.js";
+import { enqueuePlacements, cancelQueue } from "./walkThenPlace.js";
 
 export const createHttpHandler = (deps) => {
   const {
     rooms, items, itemsCatalog, botRegistry, botSockets, saveBotRegistry,
     sendWebhook, hashApiKey, isValidWebhookUrl, isSafeWebhookUrl, limitHttp, limitBotRegister, limitBotKeyRotate,
     randomAvatarUrl, ALLOWED_EMOTES, ALLOWED_ORIGINS, SERVER_URL,
-    ROOM_ZONES, scaleZoneArea, findPath, updateGrid, addItemToGrid, persistRooms,
+    ROOM_ZONES, scaleZoneArea, resolveSlotItem, ROOM_STYLES,
+    findPath, updateGrid, addItemToGrid, removeItemFromGrid, persistRooms,
     computeRoomStyle, tryPlaceItemInRoom, getCachedRoom, generateRandomPosition, stripCharacters,
     pendingInvites, DEV_MODE, OPEN_ACCESS = false,
     TRUST_PROXY = false,
     addAgentThought,
+    bonds, bondKey, getBondLevel, BOND_LEVELS,
+    initNeeds, getNeeds, satisfyNeeds, applySocialBoost, suggestInteraction, cleanupNeeds,
+    addRoutine, listRoutines, cancelRoutine, cleanupRoutines,
+    suggestPlacements, analyzeRoomLayout, computeLayoutScore,
+    githubService, githubStore, llmBridge,
+    ensureCellOccupancy, cellKey, occupyCell, vacateCell, isCellOccupied, trimPathToFreeCell,
   } = deps;
   // io is accessed via deps.io so it can be patched after construction
   const DEFAULT_MAX_JSON_BODY_BYTES = 1024 * 1024; // 1MB
@@ -1266,6 +1275,15 @@ Want to build your own space? Each bot gets **one room** — here's how:
               invitedBy: joinData.invitedBy || null,
               eventBuffer,
             });
+            // Initialize needs tracking for REST bots
+            initNeeds(joinData.id);
+
+            // Clean up routines and needs if virtual socket disconnects unexpectedly
+            botSocket.on("disconnect", () => {
+              cleanupRoutines(apiKey);
+              cleanupNeeds(joinData.id);
+            });
+
             // Push invitedBy as an event so REST bots can pick it up
             if (joinData.invitedBy) {
               pushEvent({ type: "invited_by", inviter: joinData.invitedBy });
@@ -1365,6 +1383,9 @@ Want to build your own space? Each bot gets **one room** — here's how:
       if (!conn) {
         return json(res, 400, { success: false, error: "Bot is not connected to any room" });
       }
+      cancelQueue(conn.botId);
+      cleanupNeeds(conn.botId);
+      cleanupRoutines(apiKey);
       conn.socket.emit("leaveRoom");
       conn.socket.disconnect();
       botSockets.delete(apiKey);
@@ -1745,6 +1766,14 @@ Want to build your own space? Each bot gets **one room** — here's how:
             }
             const from = botChar.position || [0, 0];
             const to = action.target.map(Number);
+
+            ensureCellOccupancy(botRoom);
+            if (isCellOccupied(botRoom, to[0], to[1], botChar.id)) {
+              return json(res, 409, { success: false, error: "Cell occupied" });
+            }
+            vacateCell(botRoom, from[0], from[1], botChar.id);
+            occupyCell(botRoom, to[0], to[1], botChar.id);
+
             // Update character position
             botChar.position = to;
             // Broadcast move to room
@@ -1963,39 +1992,87 @@ Want to build your own space? Each bot gets **one room** — here's how:
       const room = rooms.find(r => r.id === conn.roomId);
       if (!room) return json(res, 404, { success: false, error: "Room not found" });
 
+      // Assign room style on first build (persists automatically via room serialization)
+      if (!room.style) {
+        room.style = ROOM_STYLES[Math.floor(Math.random() * ROOM_STYLES.length)];
+      }
+
       const zoneIndex = reqBody?.zone ?? Math.floor(Math.random() * ROOM_ZONES.length);
       const zone = ROOM_ZONES[zoneIndex % ROOM_ZONES.length];
       const scaledArea = scaleZoneArea(zone.area, room);
 
+      // Determine which items to place
+      let itemNames;
       if (reqBody?.items && Array.isArray(reqBody.items)) {
-        // Place specific items
-        let placed = 0;
-        for (const itemName of reqBody.items.slice(0, 5)) {
-          if (tryPlaceItemInRoom(room, itemName, scaledArea)) placed++;
+        itemNames = reqBody.items.slice(0, 5);
+      } else {
+        // Auto-build from zone, resolving slot alternatives using room style
+        const ordered = zone.placementOrder || zone.items;
+        const resolved = ordered.map(slot => resolveSlotItem(zone, slot, room.style));
+        const existingNames = new Set(room.items.map(i => i.name));
+        const needed = resolved.filter(name =>
+          !existingNames.has(name) ||
+          room.items.filter(i => i.name === name).length < resolved.filter(n => n === name).length
+        );
+
+        if (needed.length === 0) {
+          // Try extras after essentials are done
+          const extras = (zone.extras || []).filter(name => !existingNames.has(name));
+          if (extras.length === 0) {
+            const response = { success: true, placed: 0, queued: 0, message: "Zone is already furnished" };
+            if (computeLayoutScore) response.layoutScore = computeLayoutScore(room);
+            return json(res, 200, response);
+          }
+          itemNames = [extras[0]];
+        } else {
+          itemNames = [needed[0]];
         }
-        if (placed > 0) {
-          deps.io.to(room.id).emit("mapUpdate", {
-            map: { gridDivision: room.gridDivision, size: room.size, items: room.items },
-          });
-          deps.io.to(room.id).emit("buildStarted", { botId: conn.botId, zone: zoneIndex });
-        }
-        return json(res, 200, { success: true, placed });
       }
 
-      // Auto-build one item from zone
-      const needed = zone.items.filter(name => room.items.filter(i => i.name === name).length < 1);
-      if (needed.length > 0) {
-        const itemName = needed[Math.floor(Math.random() * needed.length)];
-        const placed = tryPlaceItemInRoom(room, itemName, scaledArea);
-        if (placed) {
-          deps.io.to(room.id).emit("mapUpdate", {
-            map: { gridDivision: room.gridDivision, size: room.size, items: room.items },
-          });
-          deps.io.to(room.id).emit("buildStarted", { botId: conn.botId, zone: zoneIndex });
+      // Compute positions via tryPlaceItemInRoom (adds to room + grid for affinity scoring)
+      const beforeCount = room.items.length;
+      const computed = [];
+      for (const itemName of itemNames) {
+        if (tryPlaceItemInRoom(room, itemName, scaledArea)) {
+          const placedItem = room.items[room.items.length - 1];
+          const itemDef = items[itemName];
+          computed.push({ newItem: { ...placedItem }, itemDef });
         }
-        return json(res, 200, { success: true, placed: placed ? 1 : 0, item: itemName });
       }
-      return json(res, 200, { success: true, placed: 0, message: "Zone is already furnished" });
+
+      // Remove computed items from room + grid (queue processor re-adds them after walking)
+      if (computed.length > 0) {
+        const toRemove = room.items.splice(beforeCount);
+        for (const removedItem of toRemove) {
+          removeItemFromGrid(room, removedItem);
+        }
+
+        // Find the bot's character in the room
+        const character = room.characters.find(c => c.id === conn.botId);
+        if (character) {
+          enqueuePlacements({
+            botId: conn.botId,
+            room,
+            items: computed,
+            character,
+            io: deps.io,
+            findPathFn: findPath,
+            addItemToGridFn: addItemToGrid,
+            persistRoomsFn: persistRooms,
+            onPositionChange: (botId, oldPos, newPos) => {
+              ensureCellOccupancy(room);
+              if (oldPos) vacateCell(room, oldPos[0], oldPos[1], botId);
+              if (newPos) occupyCell(room, newPos[0], newPos[1], botId);
+            },
+          });
+        }
+
+        deps.io.to(room.id).emit("buildStarted", { botId: conn.botId, zone: zoneIndex });
+      }
+
+      const response = { success: true, queued: computed.length };
+      if (computeLayoutScore) response.layoutScore = computeLayoutScore(room);
+      return json(res, 202, response);
     }
 
     // --- Room style analysis (lightweight alternative to /observe) ---
@@ -2014,8 +2091,22 @@ Want to build your own space? Each bot gets **one room** — here's how:
       }
       const style = computeRoomStyle(room);
       style.itemCatalog = Object.fromEntries(
-        Object.entries(items).map(([key, def]) => [key, { name: def.name, size: def.size, walkable: !!def.walkable, wall: !!def.wall }])
+        Object.entries(items).map(([key, def]) => [key, {
+          name: def.name, size: def.size, walkable: !!def.walkable, wall: !!def.wall,
+          ...(def.role && { role: def.role }),
+          ...(def.alignment && { alignment: def.alignment }),
+          ...(def.affinities && { affinities: def.affinities }),
+        }])
       );
+      // Layout analysis
+      if (analyzeRoomLayout && computeLayoutScore) {
+        const relationships = analyzeRoomLayout(room);
+        style.layout = {
+          score: computeLayoutScore(room),
+          relationships: relationships.filter((r) => r.satisfied),
+          missingRelationships: relationships.filter((r) => !r.satisfied),
+        };
+      }
       return json(res, 200, { success: true, room: { id: room.id, name: room.name }, style });
     }
 
@@ -2087,7 +2178,7 @@ Want to build your own space? Each bot gets **one room** — here's how:
       }
 
       const results = [];
-      let placedCount = 0;
+      const validatedItems = [];
       for (const entry of reqBody.items.slice(0, 20)) {
         const { itemName, gridPosition, rotation } = entry || {};
         const itemDef = items[itemName];
@@ -2104,7 +2195,7 @@ Want to build your own space? Each bot gets **one room** — here's how:
           results.push({ itemName, success: false, error: "Negative position" });
           continue;
         }
-        const rot = typeof rotation === "number" ? Math.floor(rotation) % 4 : 0;
+        const rot = typeof rotation === "number" ? Math.floor(rotation) % 4 : (itemDef.rotation ?? 0);
         const width = rot === 1 || rot === 3 ? itemDef.size[1] : itemDef.size[0];
         const height = rot === 1 || rot === 3 ? itemDef.size[0] : itemDef.size[1];
         const maxX = room.size[0] * room.gridDivision;
@@ -2112,6 +2203,47 @@ Want to build your own space? Each bot gets **one room** — here's how:
         if (gx + width > maxX || gy + height > maxY) {
           results.push({ itemName, success: false, error: "Out of bounds" });
           continue;
+        }
+        if (!isValidWallPlacement(itemDef, [gx, gy], rot, room.size, room.gridDivision)) {
+          results.push({ itemName, success: false, error: "Wall item must be placed on a wall" });
+          continue;
+        }
+        // Wall-vs-wall collision check + capacity check
+        if (itemDef.wall) {
+          let wallBlocked = false;
+          const edgeCells = { front: 0, back: 0, left: 0, right: 0 };
+          for (const existing of room.items) {
+            if (!existing.wall) continue;
+            const ew = existing.rotation === 1 || existing.rotation === 3 ? existing.size[1] : existing.size[0];
+            const eh = existing.rotation === 1 || existing.rotation === 3 ? existing.size[0] : existing.size[1];
+            if (gx < existing.gridPosition[0] + ew && gx + width > existing.gridPosition[0] &&
+                gy < existing.gridPosition[1] + eh && gy + height > existing.gridPosition[1]) {
+              wallBlocked = true;
+              break;
+            }
+            const ec = ew * eh;
+            if (existing.gridPosition[1] === 0) edgeCells.front += ec;
+            if (existing.gridPosition[0] === 0) edgeCells.left += ec;
+            if (existing.gridPosition[1] + eh === maxY) edgeCells.back += ec;
+            if (existing.gridPosition[0] + ew === maxX) edgeCells.right += ec;
+          }
+          if (wallBlocked) {
+            results.push({ itemName, success: false, error: "Wall item collision" });
+            continue;
+          }
+          const newCells = width * height;
+          if (gy === 0) edgeCells.front += newCells;
+          if (gx === 0) edgeCells.left += newCells;
+          if (gy + height === maxY) edgeCells.back += newCells;
+          if (gx + width === maxX) edgeCells.right += newCells;
+          if (room.size[0] <= 30 && room.size[1] <= 30) {
+            const cap = wallEdgeCapacity(room.size, room.gridDivision);
+            if (edgeCells.front > cap.front || edgeCells.back > cap.back ||
+                edgeCells.left > cap.left || edgeCells.right > cap.right) {
+              results.push({ itemName, success: false, error: "Wall edge capacity exceeded" });
+              continue;
+            }
+          }
         }
         if (!itemDef.walkable && !itemDef.wall) {
           let blocked = false;
@@ -2129,23 +2261,61 @@ Want to build your own space? Each bot gets **one room** — here's how:
           name: itemDef.name,
           size: itemDef.size,
           gridPosition: [gx, gy],
-          rotation: itemDef.rotation != null ? itemDef.rotation : rot,
+          rotation: rot,
         };
         if (itemDef.walkable) newItem.walkable = true;
         if (itemDef.wall) newItem.wall = true;
-        room.items.push(newItem);
-        addItemToGrid(room, newItem);
-        placedCount++;
-        results.push({ itemName, success: true, gridPosition: [gx, gy] });
+        validatedItems.push({ newItem, itemDef });
+        results.push({ itemName, success: true, queued: true, gridPosition: [gx, gy] });
       }
 
-      if (placedCount > 0) {
-        deps.io.to(room.id).emit("mapUpdate", {
-          map: { gridDivision: room.gridDivision, size: room.size, items: room.items },
-        });
-        persistRooms(room);
+      if (validatedItems.length > 0) {
+        const character = room.characters.find(c => c.id === conn.botId);
+        if (character) {
+          enqueuePlacements({
+            botId: conn.botId,
+            room,
+            items: validatedItems,
+            character,
+            io: deps.io,
+            findPathFn: findPath,
+            addItemToGridFn: addItemToGrid,
+            persistRoomsFn: persistRooms,
+            onPositionChange: (botId, oldPos, newPos) => {
+              ensureCellOccupancy(room);
+              if (oldPos) vacateCell(room, oldPos[0], oldPos[1], botId);
+              if (newPos) occupyCell(room, newPos[0], newPos[1], botId);
+            },
+          });
+        }
       }
-      return json(res, 200, { success: true, placed: placedCount, total: results.length, results });
+      return json(res, 202, { success: true, queued: validatedItems.length, total: results.length, results });
+    }
+
+    // --- Suggest placement positions for an item ---
+    const suggestMatch = req.url?.match(/^\/api\/v1\/rooms\/([^/]+)\/suggest-placement$/);
+    if (req.method === "POST" && suggestMatch) {
+      if (!apiKey || !botRegistry.has(apiKey)) {
+        return json(res, 401, { success: false, error: "Invalid or missing API key" });
+      }
+      const conn = botSockets.get(apiKey);
+      if (!conn) {
+        return json(res, 400, { success: false, error: "Bot is not in a room. Join first." });
+      }
+      const room = rooms.find((r) => r.id === conn.roomId);
+      if (!room) {
+        return json(res, 404, { success: false, error: "Room not found" });
+      }
+      const itemName = reqBody?.itemName;
+      if (!itemName || !items[itemName]) {
+        return json(res, 400, { success: false, error: "Invalid or missing itemName" });
+      }
+      const count = Math.max(1, Math.min(20, Number(reqBody?.count) || 5));
+      if (!suggestPlacements) {
+        return json(res, 501, { success: false, error: "Placement engine not available" });
+      }
+      const suggestions = suggestPlacements(room, itemName, count);
+      return json(res, 200, { success: true, itemName, suggestions });
     }
 
     // --- Clear all furniture from a room ---
@@ -2170,6 +2340,445 @@ Want to build your own space? Each bot gets **one room** — here's how:
       });
       persistRooms(room);
       return json(res, 200, { success: true, removed: removedCount });
+    }
+
+    // ============================================================================
+    // BOT GATEWAY — NEW FEATURES
+    // ============================================================================
+
+    // --- Feature 1: Item Catalog (public, no auth) ---
+    if (req.method === "GET" && req.url === "/api/v1/catalog") {
+      const catalog = Object.entries(items).map(([key, def]) => ({
+        name: key,
+        size: def.size,
+        walkable: !!def.walkable,
+        wall: !!def.wall,
+        rotation: def.rotation ?? 0,
+        sittable: !!(def.sittable || def.sit),
+        ...(def.role && { role: def.role }),
+        ...(def.alignment && { alignment: def.alignment }),
+        ...(def.anchor && { anchor: true }),
+        ...(def.affinities && { affinities: def.affinities }),
+      }));
+      return json(res, 200, { success: true, items: catalog, count: catalog.length });
+    }
+
+    // --- Feature 1: List room items ---
+    const roomItemsMatch = req.url?.match(/^\/api\/v1\/rooms\/([^/]+)\/items$/);
+    if (req.method === "GET" && roomItemsMatch) {
+      if (!apiKey || !botRegistry.has(apiKey)) {
+        return json(res, 401, { success: false, error: "Invalid or missing API key" });
+      }
+      const conn = botSockets.get(apiKey);
+      if (!conn) {
+        return json(res, 400, { success: false, error: "Bot is not in a room. Join first." });
+      }
+      const room = rooms.find((r) => r.id === conn.roomId);
+      if (!room) {
+        return json(res, 404, { success: false, error: "Room not found" });
+      }
+      const roomItems = room.items.map((item, index) => ({
+        index,
+        name: item.name,
+        size: item.size,
+        gridPosition: item.gridPosition,
+        rotation: item.rotation ?? 0,
+        walkable: !!item.walkable,
+        wall: !!item.wall,
+      }));
+      return json(res, 200, { success: true, items: roomItems, count: roomItems.length });
+    }
+
+    // --- Feature 1: Place single item ---
+    const placeItemMatch = req.url?.match(/^\/api\/v1\/rooms\/([^/]+)\/place-item$/);
+    if (req.method === "POST" && placeItemMatch) {
+      if (!apiKey || !botRegistry.has(apiKey)) {
+        return json(res, 401, { success: false, error: "Invalid or missing API key" });
+      }
+      const conn = botSockets.get(apiKey);
+      if (!conn) {
+        return json(res, 400, { success: false, error: "Bot is not in a room. Join first." });
+      }
+      const room = rooms.find((r) => r.id === conn.roomId);
+      if (!room) {
+        return json(res, 404, { success: false, error: "Room not found" });
+      }
+      const { itemName, gridPosition, rotation } = reqBody || {};
+      const itemDef = items[itemName];
+      if (!itemDef) {
+        return json(res, 400, { success: false, error: `Unknown item: ${itemName}` });
+      }
+      if (!Array.isArray(gridPosition) || gridPosition.length !== 2) {
+        return json(res, 400, { success: false, error: "gridPosition must be [x, y]" });
+      }
+      const [gx, gy] = gridPosition.map(Math.floor);
+      if (gx < 0 || gy < 0) {
+        return json(res, 400, { success: false, error: "Negative position" });
+      }
+      const rot = typeof rotation === "number" ? Math.floor(rotation) % 4 : (itemDef.rotation ?? 0);
+      const width = rot === 1 || rot === 3 ? itemDef.size[1] : itemDef.size[0];
+      const height = rot === 1 || rot === 3 ? itemDef.size[0] : itemDef.size[1];
+      const maxX = room.size[0] * room.gridDivision;
+      const maxY = room.size[1] * room.gridDivision;
+      if (gx + width > maxX || gy + height > maxY) {
+        return json(res, 400, { success: false, error: "Out of bounds" });
+      }
+      if (!isValidWallPlacement(itemDef, [gx, gy], rot, room.size, room.gridDivision)) {
+        return json(res, 400, { success: false, error: "Wall item must be placed on a wall" });
+      }
+      // Wall-vs-wall collision check + capacity check
+      if (itemDef.wall) {
+        const edgeCells = { front: 0, back: 0, left: 0, right: 0 };
+        for (const existing of room.items) {
+          if (!existing.wall) continue;
+          const ew = existing.rotation === 1 || existing.rotation === 3 ? existing.size[1] : existing.size[0];
+          const eh = existing.rotation === 1 || existing.rotation === 3 ? existing.size[0] : existing.size[1];
+          if (gx < existing.gridPosition[0] + ew && gx + width > existing.gridPosition[0] &&
+              gy < existing.gridPosition[1] + eh && gy + height > existing.gridPosition[1]) {
+            return json(res, 409, { success: false, error: "Wall item collision" });
+          }
+          const ec = ew * eh;
+          if (existing.gridPosition[1] === 0) edgeCells.front += ec;
+          if (existing.gridPosition[0] === 0) edgeCells.left += ec;
+          if (existing.gridPosition[1] + eh === maxY) edgeCells.back += ec;
+          if (existing.gridPosition[0] + ew === maxX) edgeCells.right += ec;
+        }
+        const newCells = width * height;
+        if (gy === 0) edgeCells.front += newCells;
+        if (gx === 0) edgeCells.left += newCells;
+        if (gy + height === maxY) edgeCells.back += newCells;
+        if (gx + width === maxX) edgeCells.right += newCells;
+        if (room.size[0] <= 30 && room.size[1] <= 30) {
+          const cap = wallEdgeCapacity(room.size, room.gridDivision);
+          if (edgeCells.front > cap.front || edgeCells.back > cap.back ||
+              edgeCells.left > cap.left || edgeCells.right > cap.right) {
+            return json(res, 409, { success: false, error: "Wall edge capacity exceeded" });
+          }
+        }
+      }
+      if (!itemDef.walkable && !itemDef.wall) {
+        let blocked = false;
+        for (let x = 0; x < width && !blocked; x++) {
+          for (let y = 0; y < height && !blocked; y++) {
+            if (!room.grid.isWalkableAt(gx + x, gy + y)) blocked = true;
+          }
+        }
+        if (blocked) {
+          return json(res, 409, { success: false, error: "Collision with existing item" });
+        }
+      }
+      const newItem = {
+        name: itemDef.name,
+        size: itemDef.size,
+        gridPosition: [gx, gy],
+        rotation: rot,
+      };
+      if (itemDef.walkable) newItem.walkable = true;
+      if (itemDef.wall) newItem.wall = true;
+
+      // Enqueue: bot walks to position, then places
+      const character = room.characters.find(c => c.id === conn.botId);
+      if (character) {
+        enqueuePlacements({
+          botId: conn.botId,
+          room,
+          items: [{ newItem, itemDef }],
+          character,
+          io: deps.io,
+          findPathFn: findPath,
+          addItemToGridFn: addItemToGrid,
+          persistRoomsFn: persistRooms,
+          onPositionChange: (botId, oldPos, newPos) => {
+            ensureCellOccupancy(room);
+            if (oldPos) vacateCell(room, oldPos[0], oldPos[1], botId);
+            if (newPos) occupyCell(room, newPos[0], newPos[1], botId);
+          },
+        });
+      }
+      return json(res, 202, { success: true, item: newItem, queued: true });
+    }
+
+    // --- Feature 1: Remove item by index ---
+    const removeItemMatch = req.url?.match(/^\/api\/v1\/rooms\/([^/]+)\/remove-item/);
+    if (req.method === "DELETE" && removeItemMatch) {
+      if (!apiKey || !botRegistry.has(apiKey)) {
+        return json(res, 401, { success: false, error: "Invalid or missing API key" });
+      }
+      const conn = botSockets.get(apiKey);
+      if (!conn) {
+        return json(res, 400, { success: false, error: "Bot is not in a room. Join first." });
+      }
+      const room = rooms.find((r) => r.id === conn.roomId);
+      if (!room) {
+        return json(res, 404, { success: false, error: "Room not found" });
+      }
+      const url = new URL(req.url, "http://localhost");
+      const indexParam = url.searchParams.get("index");
+      const itemIndex = parseInt(indexParam, 10);
+      if (isNaN(itemIndex) || itemIndex < 0 || itemIndex >= room.items.length) {
+        return json(res, 400, { success: false, error: `Invalid index. Room has ${room.items.length} items (0-${room.items.length - 1}).` });
+      }
+      const removed = room.items.splice(itemIndex, 1)[0];
+      // Rebuild grid after removal
+      updateGrid(room);
+      deps.io.to(room.id).emit("mapUpdate", {
+        map: { gridDivision: room.gridDivision, size: room.size, items: room.items },
+      });
+      persistRooms(room);
+      return json(res, 200, { success: true, removed: { name: removed.name, gridPosition: removed.gridPosition } });
+    }
+
+    // --- Feature 2: Bot-to-bot direct messaging ---
+    if (req.method === "POST" && req.url === "/api/v1/bots/message") {
+      if (!apiKey || !botRegistry.has(apiKey)) {
+        return json(res, 401, { success: false, error: "Invalid or missing API key" });
+      }
+      if (!reqBody?.targetName || !reqBody?.message) {
+        return json(res, 400, { success: false, error: "targetName and message are required" });
+      }
+      const senderBot = botRegistry.get(apiKey);
+      const targetNameLower = reqBody.targetName.trim().toLowerCase();
+
+      // Find target bot by name in registry
+      let targetKey = null;
+      let targetBot = null;
+      for (const [key, bot] of botRegistry) {
+        if (bot.name.toLowerCase() === targetNameLower) {
+          targetKey = key;
+          targetBot = bot;
+          break;
+        }
+      }
+      if (!targetBot) {
+        return json(res, 404, { success: false, error: `Bot "${reqBody.targetName}" not found` });
+      }
+
+      const messagePayload = {
+        type: "bot_message",
+        from: senderBot.name,
+        message: String(reqBody.message).slice(0, 500),
+        timestamp: Date.now(),
+      };
+
+      let delivered = false;
+      // Push to target's event buffer if connected
+      const targetConn = botSockets.get(targetKey);
+      if (targetConn?.eventBuffer) {
+        targetConn.eventBuffer.push({ ...messagePayload });
+        if (targetConn.eventBuffer.length > 100) targetConn.eventBuffer.shift();
+        delivered = true;
+      }
+
+      // Send webhook to target if configured
+      sendWebhook(targetKey, { event: "bot_message", from: senderBot.name, message: messagePayload.message, timestamp: messagePayload.timestamp });
+
+      return json(res, 200, { success: true, delivered, target: targetBot.name });
+    }
+
+    // --- Feature 3: Get bot needs ---
+    if (req.method === "GET" && req.url === "/api/v1/bots/needs") {
+      if (!apiKey || !botRegistry.has(apiKey)) {
+        return json(res, 401, { success: false, error: "Invalid or missing API key" });
+      }
+      const conn = botSockets.get(apiKey);
+      if (!conn) {
+        return json(res, 400, { success: false, error: "Bot is not in a room. Join first." });
+      }
+      const needs = getNeeds(conn.botId);
+      if (!needs) {
+        return json(res, 404, { success: false, error: "Needs not initialized" });
+      }
+      return json(res, 200, { success: true, ...needs });
+    }
+
+    // --- Feature 3: Interact with object to satisfy needs ---
+    if (req.method === "POST" && req.url === "/api/v1/bots/interact") {
+      if (!apiKey || !botRegistry.has(apiKey)) {
+        return json(res, 401, { success: false, error: "Invalid or missing API key" });
+      }
+      const conn = botSockets.get(apiKey);
+      if (!conn) {
+        return json(res, 400, { success: false, error: "Bot is not in a room. Join first." });
+      }
+      if (!reqBody?.objectName) {
+        return json(res, 400, { success: false, error: "objectName is required" });
+      }
+      const result = satisfyNeeds(conn.botId, reqBody.objectName);
+      if (!result) {
+        return json(res, 404, { success: false, error: "Needs not initialized" });
+      }
+      if (result.error) {
+        return json(res, 400, { success: false, error: result.error });
+      }
+      return json(res, 200, { success: true, ...result });
+    }
+
+    // --- Feature 3: Suggest best interaction for bot ---
+    if (req.method === "GET" && req.url === "/api/v1/bots/needs/suggest") {
+      if (!apiKey || !botRegistry.has(apiKey)) {
+        return json(res, 401, { success: false, error: "Invalid or missing API key" });
+      }
+      const conn = botSockets.get(apiKey);
+      if (!conn) {
+        return json(res, 400, { success: false, error: "Bot is not in a room. Join first." });
+      }
+      const room = rooms.find((r) => r.id === conn.roomId);
+      if (!room) {
+        return json(res, 404, { success: false, error: "Room not found" });
+      }
+      // Get unique object names in the room
+      const availableObjects = [...new Set(room.items.map((i) => i.name))];
+      const suggestion = suggestInteraction(conn.botId, availableObjects);
+      const needs = getNeeds(conn.botId);
+      return json(res, 200, {
+        success: true,
+        suggestion,
+        availableObjects,
+        currentNeeds: needs?.motives || null,
+      });
+    }
+
+    // --- Feature 4: Get all bonds for this bot ---
+    if (req.method === "GET" && req.url === "/api/v1/bots/bonds") {
+      if (!apiKey || !botRegistry.has(apiKey)) {
+        return json(res, 401, { success: false, error: "Invalid or missing API key" });
+      }
+      const bot = botRegistry.get(apiKey);
+      const botName = bot.name.toLowerCase();
+      const result = [];
+      for (const [key, record] of bonds) {
+        const parts = key.split("::");
+        if (parts[0] === botName || parts[1] === botName) {
+          const peerName = parts[0] === botName ? parts[1] : parts[0];
+          const score = record.score || 0;
+          const level = getBondLevel(score);
+          const maxLevel = level === BOND_LEVELS.length - 1;
+          result.push({
+            peerName,
+            score,
+            level,
+            levelLabel: BOND_LEVELS[level].label,
+            nextThreshold: maxLevel ? null : BOND_LEVELS[level + 1].threshold,
+            maxLevel,
+          });
+        }
+      }
+      result.sort((a, b) => b.score - a.score);
+      return json(res, 200, { success: true, bonds: result });
+    }
+
+    // --- Feature 4: Get specific bond ---
+    const bondTargetMatch = req.url?.match(/^\/api\/v1\/bots\/bonds\/([^/]+)$/);
+    if (req.method === "GET" && bondTargetMatch) {
+      if (!apiKey || !botRegistry.has(apiKey)) {
+        return json(res, 401, { success: false, error: "Invalid or missing API key" });
+      }
+      const bot = botRegistry.get(apiKey);
+      const targetName = decodeURIComponent(bondTargetMatch[1]);
+      const key = bondKey(bot.name, targetName);
+      const record = bonds.get(key);
+      const score = record?.score || 0;
+      const level = getBondLevel(score);
+      const maxLevel = level === BOND_LEVELS.length - 1;
+      return json(res, 200, {
+        success: true,
+        peerName: targetName,
+        score,
+        level,
+        levelLabel: BOND_LEVELS[level].label,
+        nextThreshold: maxLevel ? null : BOND_LEVELS[level + 1].threshold,
+        maxLevel,
+      });
+    }
+
+    // --- Feature 5: Create routine ---
+    if (req.method === "POST" && req.url === "/api/v1/bots/routines") {
+      if (!apiKey || !botRegistry.has(apiKey)) {
+        return json(res, 401, { success: false, error: "Invalid or missing API key" });
+      }
+      const conn = botSockets.get(apiKey);
+      if (!conn) {
+        return json(res, 400, { success: false, error: "Bot is not in a room. Join first." });
+      }
+      if (!reqBody?.action) {
+        return json(res, 400, { success: false, error: "action is required" });
+      }
+
+      // Executor maps action types to socket emits on bot's virtual socket
+      const executeRoutineAction = (action, params) => {
+        const currentConn = botSockets.get(apiKey);
+        if (!currentConn) return;
+
+        const bot = botRegistry.get(apiKey);
+        const botName = bot?.name;
+
+        // Find bot character in room for /control-style actions
+        let botChar = null;
+        let botRoom = null;
+        for (const r of rooms) {
+          const found = r.characters.find(c => c.name === botName && c.isBot);
+          if (found) { botChar = found; botRoom = r; break; }
+        }
+
+        switch (action) {
+          case "say":
+            if (params.message) currentConn.socket.emit("chatMessage", String(params.message).slice(0, 200));
+            break;
+          case "move":
+            if (Array.isArray(params.target) && params.target.length === 2) {
+              const from = currentConn.position || [0, 0];
+              currentConn.socket.emit("move", from, params.target);
+              currentConn.position = params.target;
+            }
+            break;
+          case "emote":
+            if (params.emote && ALLOWED_EMOTES.includes(params.emote)) {
+              currentConn.socket.emit("emote:play", params.emote);
+            }
+            break;
+          case "sit":
+            if (params.itemIndex != null) currentConn.socket.emit("sit", params.itemIndex);
+            break;
+          case "switchRoom":
+            if (params.roomId) currentConn.socket.emit("switchRoom", params.roomId);
+            break;
+        }
+      };
+
+      const result = addRoutine(apiKey, {
+        action: reqBody.action,
+        params: reqBody.params || {},
+        intervalMs: reqBody.intervalMs,
+        description: reqBody.description,
+      }, executeRoutineAction);
+
+      if (result.error) {
+        return json(res, 400, { success: false, error: result.error });
+      }
+      return json(res, 201, { success: true, routine: result.routine });
+    }
+
+    // --- Feature 5: List routines ---
+    if (req.method === "GET" && req.url === "/api/v1/bots/routines") {
+      if (!apiKey || !botRegistry.has(apiKey)) {
+        return json(res, 401, { success: false, error: "Invalid or missing API key" });
+      }
+      const routines = listRoutines(apiKey);
+      return json(res, 200, { success: true, routines });
+    }
+
+    // --- Feature 5: Cancel routine ---
+    const routineCancelMatch = req.url?.match(/^\/api\/v1\/bots\/routines\/([^/]+)$/);
+    if (req.method === "DELETE" && routineCancelMatch) {
+      if (!apiKey || !botRegistry.has(apiKey)) {
+        return json(res, 401, { success: false, error: "Invalid or missing API key" });
+      }
+      const routineId = decodeURIComponent(routineCancelMatch[1]);
+      const result = cancelRoutine(apiKey, routineId);
+      if (result.error) {
+        return json(res, 404, { success: false, error: result.error });
+      }
+      return json(res, 200, { success: true, message: result.message });
     }
 
     // ============================================================================
@@ -2413,6 +3022,197 @@ Want to build your own space? Each bot gets **one room** — here's how:
 
       const following = await db.getAgentFollowing(myAgent.id, { limit, offset });
       return json(res, 200, { success: true, following });
+    }
+
+    // ─── GitHub Code Assistant ───────────────────────────────────────
+
+    // Validate that a userId corresponds to an active socket connection
+    const validateGithubUser = (userId) => {
+      if (!userId) return false;
+      for (const [, s] of deps.io.sockets.sockets) {
+        if (s.data.userId === userId) return true;
+      }
+      return false;
+    };
+
+    const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+
+    // POST /api/v1/github/auth — validate PAT and store connection
+    if (req.method === "POST" && url.pathname === "/api/v1/github/auth") {
+      try {
+        const body = await readBody(req);
+        const { token: ghToken, userId } = body;
+        if (!ghToken || !userId) return json(res, 400, { success: false, error: "token and userId required" });
+        if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+        const ghUser = await githubService.validateToken(ghToken);
+        githubStore.setConnection(userId, { token: ghToken, githubUsername: ghUser.login });
+        return json(res, 200, { success: true, username: ghUser.login });
+      } catch (err) {
+        return json(res, 401, { success: false, error: err.message });
+      }
+    }
+
+    // GET /api/v1/github/status
+    if (req.method === "GET" && url.pathname === "/api/v1/github/status") {
+      const userId = url.searchParams.get("userId");
+      if (!userId) return json(res, 400, { success: false, error: "userId required" });
+      if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+      const conn = githubStore.getConnection(userId);
+      return json(res, 200, { success: true, connected: !!conn, username: conn?.githubUsername || null });
+    }
+
+    // POST /api/v1/github/disconnect
+    if (req.method === "POST" && url.pathname === "/api/v1/github/disconnect") {
+      try {
+        const body = await readBody(req);
+        const { userId } = body;
+        if (!userId) return json(res, 400, { success: false, error: "userId required" });
+        if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+        githubStore.removeConnection(userId);
+        return json(res, 200, { success: true });
+      } catch (err) {
+        return json(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    // POST /api/v1/github/repos/connect
+    if (req.method === "POST" && url.pathname === "/api/v1/github/repos/connect") {
+      try {
+        const body = await readBody(req);
+        const { owner, repo, userId } = body;
+        if (!owner || !repo || !userId) return json(res, 400, { success: false, error: "owner, repo, and userId required" });
+        if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+        const conn = githubStore.getConnection(userId);
+        if (!conn) return json(res, 401, { success: false, error: "GitHub not connected" });
+        const treeData = await githubService.fetchRepoTree(conn.token, owner, repo);
+        githubStore.addRepo(userId, owner, repo, { fileCount: treeData.tree.length, defaultBranch: "main" });
+        githubStore.setRepoTreeCache(userId, owner, repo, treeData.tree);
+        return json(res, 200, { success: true, owner, repo, fileCount: treeData.tree.length });
+      } catch (err) {
+        return json(res, 400, { success: false, error: err.message });
+      }
+    }
+
+    // DELETE /api/v1/github/repos/disconnect
+    if (req.method === "DELETE" && url.pathname === "/api/v1/github/repos/disconnect") {
+      try {
+        const body = await readBody(req);
+        const { owner, repo, userId } = body;
+        if (!owner || !repo || !userId) return json(res, 400, { success: false, error: "owner, repo, and userId required" });
+        if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+        githubStore.removeRepo(userId, owner, repo);
+        return json(res, 200, { success: true });
+      } catch (err) {
+        return json(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    // GET /api/v1/github/repos
+    if (req.method === "GET" && url.pathname === "/api/v1/github/repos") {
+      const userId = url.searchParams.get("userId");
+      if (!userId) return json(res, 400, { success: false, error: "userId required" });
+      if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+      return json(res, 200, { success: true, repos: githubStore.getRepos(userId) });
+    }
+
+    // GET /api/v1/github/repos/:owner/:repo/tree
+    if (req.method === "GET" && /^\/api\/v1\/github\/repos\/([^/]+)\/([^/]+)\/tree$/.test(url.pathname)) {
+      const [, owner, repo] = url.pathname.match(/^\/api\/v1\/github\/repos\/([^/]+)\/([^/]+)\/tree$/);
+      const userId = url.searchParams.get("userId");
+      if (!userId) return json(res, 400, { success: false, error: "userId required" });
+      if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+      const conn = githubStore.getConnection(userId);
+      if (!conn) return json(res, 401, { success: false, error: "GitHub not connected" });
+      try {
+        const cached = githubStore.getRepoTreeCache(userId, owner, repo);
+        if (cached) return json(res, 200, { success: true, tree: cached, truncated: false });
+        const treeData = await githubService.fetchRepoTree(conn.token, owner, repo);
+        githubStore.setRepoTreeCache(userId, owner, repo, treeData.tree);
+        return json(res, 200, { success: true, tree: treeData.tree, truncated: treeData.truncated });
+      } catch (err) {
+        return json(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    // GET /api/v1/github/repos/:owner/:repo/file
+    if (req.method === "GET" && /^\/api\/v1\/github\/repos\/([^/]+)\/([^/]+)\/file$/.test(url.pathname)) {
+      const [, owner, repo] = url.pathname.match(/^\/api\/v1\/github\/repos\/([^/]+)\/([^/]+)\/file$/);
+      const filePath = url.searchParams.get("path");
+      const userId = url.searchParams.get("userId");
+      if (!userId || !filePath) return json(res, 400, { success: false, error: "userId and path required" });
+      if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+      const conn = githubStore.getConnection(userId);
+      if (!conn) return json(res, 401, { success: false, error: "GitHub not connected" });
+      try {
+        const fileData = await githubService.fetchFileContent(conn.token, owner, repo, filePath);
+        return json(res, 200, { success: true, ...fileData });
+      } catch (err) {
+        return json(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    // POST /api/v1/github/repos/:owner/:repo/ask
+    if (req.method === "POST" && /^\/api\/v1\/github\/repos\/([^/]+)\/([^/]+)\/ask$/.test(url.pathname)) {
+      const [, owner, repo] = url.pathname.match(/^\/api\/v1\/github\/repos\/([^/]+)\/([^/]+)\/ask$/);
+      try {
+        const body = await readBody(req);
+        const { question, files, userId } = body;
+        if (!question || !userId) return json(res, 400, { success: false, error: "question and userId required" });
+        if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+        const conn = githubStore.getConnection(userId);
+        if (!conn) return json(res, 401, { success: false, error: "GitHub not connected" });
+        const cached = githubStore.getRepoTreeCache(userId, owner, repo);
+        let repoContext = "";
+        if (cached) {
+          repoContext = cached.filter(f => f.type === "blob").map(f => f.path).join("\n");
+        } else {
+          const treeData = await githubService.fetchRepoTree(conn.token, owner, repo);
+          githubStore.setRepoTreeCache(userId, owner, repo, treeData.tree);
+          repoContext = treeData.tree.filter(f => f.type === "blob").map(f => f.path).join("\n");
+        }
+        const fileContents = {};
+        if (files && Array.isArray(files)) {
+          for (const filePath of files.slice(0, 5)) {
+            try {
+              const fd = await githubService.fetchFileContent(conn.token, owner, repo, filePath);
+              fileContents[filePath] = fd.content;
+            } catch { /* skip unreadable files */ }
+          }
+        }
+        const answer = await llmBridge.askCodeQuestion({ question, repoContext, fileContents });
+        return json(res, 200, { success: true, answer, model: "claude-sonnet-4-20250514" });
+      } catch (err) {
+        return json(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    // POST /api/v1/github/repos/:owner/:repo/pr
+    if (req.method === "POST" && /^\/api\/v1\/github\/repos\/([^/]+)\/([^/]+)\/pr$/.test(url.pathname)) {
+      const [, owner, repo] = url.pathname.match(/^\/api\/v1\/github\/repos\/([^/]+)\/([^/]+)\/pr$/);
+      try {
+        const body = await readBody(req);
+        const { title, body: prBody, changes, userId } = body;
+        if (!title || !userId) return json(res, 400, { success: false, error: "title and userId required" });
+        if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+        const conn = githubStore.getConnection(userId);
+        if (!conn) return json(res, 401, { success: false, error: "GitHub not connected" });
+        // Get default branch SHA
+        const baseSha = await githubService.fetchDefaultBranchSha(conn.token, owner, repo);
+        // Create a branch
+        const branchName = `ocw-${Date.now()}`;
+        const branchRef = await githubService.createBranch(conn.token, owner, repo, branchName, baseSha);
+        // Commit changes if provided
+        if (changes && Array.isArray(changes)) {
+          for (const change of changes) {
+            await githubService.createOrUpdateFile(conn.token, owner, repo, change.path, change.content, change.message || title, branchName);
+          }
+        }
+        // Create PR
+        const pr = await githubService.createPullRequest(conn.token, owner, repo, title, prBody || "", branchName, "main");
+        return json(res, 200, { success: true, number: pr.number, html_url: pr.html_url });
+      } catch (err) {
+        return json(res, 500, { success: false, error: err.message });
+      }
     }
 
     // Non-matched requests: return 404 (Socket.IO attaches its own listener)

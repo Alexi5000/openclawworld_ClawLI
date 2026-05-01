@@ -27,11 +27,41 @@ export const getSitSpots = (room, item, sittable, facingOffset = DEFAULT_SIT_FAC
   const maxY = room.size[1] * room.gridDivision - 1;
   const seatHeight = sittable.seatHeight;
 
+  // seatOffsets: explicit list of local offsets along the edge where seats are.
+  // For a 5-wide sofa with 2 cushions, [1, 3] means skip arms (0, 4) and center seam (2).
+  // If not set, fall back to seatInset (skip N cells from each end), or use all cells.
+  const inset = sittable.seatInset || 0;
+
+  // Build the set of valid offsets for width-edges and height-edges.
+  // seatOffsets applies to the primary (wider) dimension; the other uses inset or full range.
+  let wOffsets, hOffsets;
+  if (sittable.seatOffsets) {
+    // seatOffsets is defined relative to the unrotated item size[0] dimension.
+    // When rotated 90/270, size[0] maps to the h dimension instead.
+    const rawOffsets = sittable.seatOffsets;
+    if (rot === 1 || rot === 3) {
+      hOffsets = rawOffsets;
+      wOffsets = null; // use default range with inset
+    } else {
+      wOffsets = rawOffsets;
+      hOffsets = null;
+    }
+  }
+  // Fill in defaults for whichever dimension doesn't have explicit offsets
+  if (!wOffsets) {
+    wOffsets = [];
+    for (let i = inset; i < w - inset; i++) wOffsets.push(i);
+  }
+  if (!hOffsets) {
+    hOffsets = [];
+    for (let i = inset; i < h - inset; i++) hOffsets.push(i);
+  }
+
   const spots = [];
   let seatIdx = 0;
 
   // Front edge (gy + h side)
-  for (let x = 0; x < w; x++) {
+  for (const x of wOffsets) {
     const adjX = gx + x;
     const adjY = gy + h;
     const seatX = gx + x;
@@ -42,7 +72,7 @@ export const getSitSpots = (room, item, sittable, facingOffset = DEFAULT_SIT_FAC
     }
   }
   // Back edge (gy - 1 side)
-  for (let x = 0; x < w; x++) {
+  for (const x of wOffsets) {
     const adjX = gx + x;
     const adjY = gy - 1;
     const seatX = gx + x;
@@ -53,7 +83,7 @@ export const getSitSpots = (room, item, sittable, facingOffset = DEFAULT_SIT_FAC
     }
   }
   // Left edge (gx - 1 side)
-  for (let y = 0; y < h; y++) {
+  for (const y of hOffsets) {
     const adjX = gx - 1;
     const adjY = gy + y;
     const seatX = gx;
@@ -64,7 +94,7 @@ export const getSitSpots = (room, item, sittable, facingOffset = DEFAULT_SIT_FAC
     }
   }
   // Right edge (gx + w side)
-  for (let y = 0; y < h; y++) {
+  for (const y of hOffsets) {
     const adjX = gx + w;
     const adjY = gy + y;
     const seatX = gx + w - 1;
@@ -78,6 +108,51 @@ export const getSitSpots = (room, item, sittable, facingOffset = DEFAULT_SIT_FAC
   return spots;
 };
 
+// --- Cell occupancy helpers (prevent two characters sharing a final cell) ---
+
+export const ensureCellOccupancy = (room) => {
+  if (!(room.cellOccupancy instanceof Map)) room.cellOccupancy = new Map();
+};
+
+export const cellKey = (x, y) => `${x},${y}`;
+
+export const occupyCell = (room, x, y, socketId) => {
+  ensureCellOccupancy(room);
+  room.cellOccupancy.set(cellKey(x, y), socketId);
+};
+
+export const vacateCell = (room, x, y, socketId) => {
+  ensureCellOccupancy(room);
+  const key = cellKey(x, y);
+  if (room.cellOccupancy.get(key) === socketId) {
+    room.cellOccupancy.delete(key);
+  }
+};
+
+export const isCellOccupied = (room, x, y, excludeSocketId) => {
+  ensureCellOccupancy(room);
+  const owner = room.cellOccupancy.get(cellKey(x, y));
+  return owner != null && owner !== excludeSocketId;
+};
+
+/**
+ * Walk backward from the last waypoint in `path`, returning a truncated copy
+ * ending at the first cell not occupied by another character. If the endpoint
+ * is already free, returns the path unchanged. If every cell is occupied,
+ * returns null (character stays put).
+ */
+export const trimPathToFreeCell = (room, path, socketId) => {
+  if (!path || path.length === 0) return null;
+  ensureCellOccupancy(room);
+  for (let i = path.length - 1; i >= 0; i--) {
+    const [x, y] = path[i];
+    if (!isCellOccupied(room, x, y, socketId)) {
+      return path.slice(0, i + 1);
+    }
+  }
+  return null; // every cell along path is taken
+};
+
 export const unsitCharacter = (room, characterId, broadcastFn) => {
   if (!room) return;
   ensureSeatMaps(room);
@@ -85,5 +160,13 @@ export const unsitCharacter = (room, characterId, broadcastFn) => {
   if (!seatInfo) return;
   room.seatOccupancy.delete(`${seatInfo.itemIndex}-${seatInfo.seatIdx}`);
   room.characterSeats.delete(characterId);
+
+  // Re-register the character's floor cell occupancy after standing up
+  ensureCellOccupancy(room);
+  const char = room.characters?.find(c => c.id === characterId);
+  if (char?.position) {
+    room.cellOccupancy.set(cellKey(char.position[0], char.position[1]), characterId);
+  }
+
   if (broadcastFn) broadcastFn(room.id, "playerUnsit", { id: characterId });
 };

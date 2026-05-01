@@ -2,11 +2,11 @@
 // All state is per-socket and resets on disconnect (no persistence for v1)
 
 const BOND_MILESTONES = [
-  { id: "bond_1", label: "Reach Acquaintance", level: 1, reward: 20 },
-  { id: "bond_2", label: "Reach Friend", level: 2, reward: 40 },
-  { id: "bond_3", label: "Reach Close Friend", level: 3, reward: 60 },
-  { id: "bond_4", label: "Reach Best Friend", level: 4, reward: 80 },
-  { id: "bond_5", label: "Reach Bonded", level: 5, reward: 100 },
+  { id: "bond_1", label: "Reach Acquaintance", level: 1 },
+  { id: "bond_2", label: "Reach Friend", level: 2 },
+  { id: "bond_3", label: "Reach Close Friend", level: 3 },
+  { id: "bond_4", label: "Reach Best Friend", level: 4 },
+  { id: "bond_5", label: "Reach Bonded", level: 5 },
 ];
 
 const objectivesState = new Map();
@@ -53,7 +53,7 @@ export function checkBondMilestones(socketId, bondLevel) {
     if (milestone.completed) continue;
     if (bondLevel >= milestone.level) {
       milestone.completed = true;
-      completed.push({ id: milestone.id, label: milestone.label, reward: milestone.reward, type: "bond" });
+      completed.push({ id: milestone.id, label: milestone.label, type: "bond" });
     }
   }
   return completed;
@@ -75,7 +75,6 @@ export function objectivesPayload(socketId) {
       id: m.id,
       label: m.label,
       level: m.level,
-      reward: m.reward,
       completed: m.completed,
     })),
   };

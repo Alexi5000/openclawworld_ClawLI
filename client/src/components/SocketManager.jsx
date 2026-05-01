@@ -45,9 +45,17 @@ export const questNotificationsAtom = atom([]);
 export const roomHasPasswordAtom = atom(true);
 export const bondsAtom = atom({}); // keyed by peerName -> { score, level, levelLabel, nextThreshold, maxLevel }
 export const roomInvitesAtom = atom([]); // pending room invites
-export const characterEmotionsAtom = atom({}); // keyed by character id -> emotion string
 export const roomTransitionAtom = atom({ active: false, from: null, to: null, startedAt: 0 });
 export const objectivesAtom = atom(null);
+export const streamerModeAtom = atom(localStorage.getItem("clawland_streamer_mode") === "true");
+export const githubStatusAtom = atom(null);       // { connected: bool, username: string } or null
+export const connectedReposAtom = atom([]);        // [{ owner, repo, fileCount }]
+export const githubResponsesAtom = atom([]);       // [{ id, question, answer, model, repoKey, chunks?, done }]
+export const githubIssuesAtom = atom([]);           // [{ number, title, state, user, labels, created_at, html_url }]
+export const githubIssueDetailAtom = atom(null);    // single issue with body + comments
+export const activePetsAtom = atom([]);              // [{ runId, petId }] active subagent pets
+export const githubTokenAtom = atom(localStorage.getItem("clawland_github_token") || null);
+export const agentFixStatusAtom = atom(null);      // { running, issueNumber, repoKey, progress, result } or null
 
 // Shared ref for the local player's live world position during movement.
 // Written by Avatar.jsx every frame, read by Minimap.jsx for smooth tracking.
@@ -133,9 +141,16 @@ export const SocketManager = () => {
   const [_bonds, setBonds] = useAtom(bondsAtom);
   const [_roomInvites, setRoomInvites] = useAtom(roomInvitesAtom);
   const [_totalRooms, setTotalRooms] = useAtom(totalRoomsAtom);
-  const [_characterEmotions, setCharacterEmotions] = useAtom(characterEmotionsAtom);
   const [_roomTransition, setRoomTransition] = useAtom(roomTransitionAtom);
   const [_objectives, setObjectives] = useAtom(objectivesAtom);
+  const [_githubStatus, setGithubStatus] = useAtom(githubStatusAtom);
+  const [_connectedRepos, setConnectedRepos] = useAtom(connectedReposAtom);
+  const [_githubResponses, setGithubResponses] = useAtom(githubResponsesAtom);
+  const [_githubIssues, setGithubIssues] = useAtom(githubIssuesAtom);
+  const [_githubIssueDetail, setGithubIssueDetail] = useAtom(githubIssueDetailAtom);
+  const [_activePets, setActivePets] = useAtom(activePetsAtom);
+  const [_githubToken, setGithubToken] = useAtom(githubTokenAtom);
+  const [_agentFixStatus, setAgentFixStatus] = useAtom(agentFixStatusAtom);
 
   const charactersRef = useRef([]);
   useEffect(() => { charactersRef.current = _characters; }, [_characters]);
@@ -179,6 +194,11 @@ export const SocketManager = () => {
   useEffect(() => {
     function onConnect() {
       console.log("connected");
+      // Auto-reconnect GitHub if we have a stored token
+      const storedGhToken = localStorage.getItem("clawland_github_token");
+      if (storedGhToken) {
+        socket.emit("github:auth", { token: storedGhToken });
+      }
     }
     function onDisconnect() {
       console.log("disconnected");
@@ -432,11 +452,6 @@ export const SocketManager = () => {
     function onCharacterLeft(value) {
       // value = { id, name, isBot, roomName }
       if (!value || !value.id) return;
-      setCharacterEmotions((prev) => {
-        if (!(value.id in prev)) return prev;
-        const { [value.id]: _, ...rest } = prev;
-        return rest;
-      });
       // Mark the character as leaving so the Avatar can fade out,
       // then actually remove it after the animation completes.
       setCharacters((prev) => {
@@ -638,13 +653,154 @@ export const SocketManager = () => {
         id: `obj-${Date.now()}`,
         type: value.type || "room",
         title: value.label,
-        reward: value.reward,
         timestamp: Date.now(),
       }]);
     }
 
+    function onGithubAuthSuccess(data) {
+      setGithubStatus({ connected: true, username: data.username });
+      // Token is already stored in localStorage by handleAuth in GitHubPanel,
+      // but also update the atom so other components can track it
+      setGithubToken(localStorage.getItem("clawland_github_token"));
+    }
+    function onGithubRepoConnected(data) {
+      setConnectedRepos((prev) => [...prev.filter(r => `${r.owner}/${r.repo}` !== `${data.owner}/${data.repo}`), data]);
+    }
+    function onGithubAnswer(data) {
+      setGithubResponses((prev) => {
+        const existing = prev.findIndex(r => r.id === data.id);
+        if (existing >= 0) {
+          const updated = [...prev];
+          updated[existing] = { ...updated[existing], answer: data.answer, done: true };
+          return updated;
+        }
+        return [...prev, { ...data, done: true }];
+      });
+    }
+    function onGithubAnswerChunk(data) {
+      setGithubResponses((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && !last.done) {
+          const updated = [...prev];
+          updated[updated.length - 1] = { ...last, answer: (last.answer || "") + data.chunk, done: data.done };
+          return updated;
+        }
+        return [...prev, { id: Date.now().toString(), answer: data.chunk, done: data.done }];
+      });
+    }
+    function onGithubFileTree(data) {
+      setConnectedRepos((prev) => prev.map(r =>
+        `${r.owner}/${r.repo}` === data.repoKey ? { ...r, tree: data.tree, truncated: data.truncated } : r
+      ));
+    }
+    function onGithubFileContent(data) {
+      setConnectedRepos((prev) => prev.map(r =>
+        `${r.owner}/${r.repo}` === data.repoKey ? { ...r, openFile: data } : r
+      ));
+    }
+    function onGithubPrCreated(data) {
+      setGithubResponses((prev) => [...prev, { id: Date.now().toString(), type: "pr", ...data, done: true }]);
+    }
+    function onGithubError(data) {
+      setGithubResponses((prev) => [...prev, { id: Date.now().toString(), type: "error", error: data.error, action: data.action, done: true }]);
+    }
+    function onGithubIssuesList(data) {
+      if (data && data.issues) setGithubIssues(data.issues);
+    }
+    function onGithubIssueCreated(data) {
+      if (data) setGithubIssues((prev) => [data, ...prev]);
+    }
+    function onGithubDisconnected() {
+      setGithubStatus(null);
+      setConnectedRepos([]);
+      setGithubResponses([]);
+      setGithubIssues([]);
+      localStorage.removeItem("clawland_github_token");
+      setGithubToken(null);
+      setAgentFixStatus(null);
+    }
+    function onGithubRepoDisconnected(data) {
+      if (data && data.repoKey) {
+        setConnectedRepos((prev) => prev.filter(r => `${r.owner}/${r.repo}` !== data.repoKey));
+      }
+    }
+    function onGithubIssueDetail(data) {
+      if (data && data.issue) setGithubIssueDetail(data.issue);
+    }
+
+    function onSubagentPetSpawned(data) {
+      if (!data || !data.runId) return;
+      setActivePets((prev) => [...prev, { runId: data.runId, petId: data.petId }]);
+    }
+    function onSubagentPetDespawned(data) {
+      if (!data || !data.runId) return;
+      setActivePets((prev) => prev.filter((p) => p.runId !== data.runId));
+    }
+
+    function onAgentFixProgress(data) {
+      if (!data) return;
+      setAgentFixStatus((prev) => ({
+        ...prev,
+        running: true,
+        issueNumber: data.issueNumber,
+        repoKey: data.repoKey,
+        progress: data.message,
+      }));
+    }
+    function onAgentFixComplete(data) {
+      if (!data) return;
+      setAgentFixStatus({
+        running: false,
+        issueNumber: data.issueNumber,
+        repoKey: data.repoKey,
+        progress: "Done!",
+        result: { pr: data.pr },
+      });
+      // Mark the issue as having a fix PR in the issues list
+      if (data.issueNumber && data.pr) {
+        setGithubIssues((prev) =>
+          prev.map((i) => i.number === data.issueNumber ? { ...i, fixPRUrl: data.pr.html_url } : i)
+        );
+      }
+    }
+    function onAgentFixError(data) {
+      if (!data) return;
+      setAgentFixStatus({
+        running: false,
+        issueNumber: data.issueNumber,
+        repoKey: data.repoKey,
+        progress: null,
+        error: data.error,
+      });
+    }
+
+    function onJoinRoomError(data) {
+      console.warn("[joinRoomError]", data?.error || data);
+      // Clear transition state so the UI isn't stuck
+      setRoomTransition({ active: false, from: null, to: null, startedAt: 0 });
+      // Fall back to the plaza (first room in the list)
+      const fallback = _rooms?.[0];
+      if (fallback) {
+        const storedAvatar = localStorage.getItem("avatarURL") || initialAvatarUrl;
+        const storedName = localStorage.getItem("clawland_username");
+        if (storedName) {
+          transitionStartTime.current = Date.now();
+          setRoomTransition({ active: true, from: null, to: fallback.id, startedAt: transitionStartTime.current });
+          socket.emit("joinRoom", fallback.id, {
+            avatarUrl: storedAvatar,
+            name: storedName,
+            userId: ensureUserId(),
+            sessionToken: getSessionToken(),
+          });
+          setRoomID(fallback.id);
+        }
+      }
+    }
+
     function onSwitchRoomError(data) {
       console.warn("[switchRoomError]", data?.error || data);
+      // Clear transition state so UI isn't stuck on a loading screen
+      setRoomTransition({ active: false, from: null, to: null, startedAt: 0 });
     }
 
     function onRateLimited(data) {
@@ -692,9 +848,28 @@ export const SocketManager = () => {
     socket.on("objectives:init", onObjectivesInit);
     socket.on("objectives:progress", onObjectivesProgress);
     socket.on("objectives:complete", onObjectivesComplete);
+    socket.on("joinRoomError", onJoinRoomError);
     socket.on("switchRoomError", onSwitchRoomError);
     socket.on("rateLimited", onRateLimited);
     socket.on("itemsUpdateError", onItemsUpdateError);
+    socket.on("github:authSuccess", onGithubAuthSuccess);
+    socket.on("github:repoConnected", onGithubRepoConnected);
+    socket.on("github:answer", onGithubAnswer);
+    socket.on("github:answerChunk", onGithubAnswerChunk);
+    socket.on("github:fileTree", onGithubFileTree);
+    socket.on("github:fileContent", onGithubFileContent);
+    socket.on("github:prCreated", onGithubPrCreated);
+    socket.on("github:error", onGithubError);
+    socket.on("github:issuesList", onGithubIssuesList);
+    socket.on("github:issueCreated", onGithubIssueCreated);
+    socket.on("github:issueDetail", onGithubIssueDetail);
+    socket.on("github:disconnected", onGithubDisconnected);
+    socket.on("github:repoDisconnected", onGithubRepoDisconnected);
+    socket.on("subagent:petSpawned", onSubagentPetSpawned);
+    socket.on("subagent:petDespawned", onSubagentPetDespawned);
+    socket.on("github:agentFixProgress", onAgentFixProgress);
+    socket.on("github:agentFixComplete", onAgentFixComplete);
+    socket.on("github:agentFixError", onAgentFixError);
     return () => {
       clearTimeout(flushTimerRef.current);
       flushTimerRef.current = null;
@@ -735,9 +910,28 @@ export const SocketManager = () => {
       socket.off("objectives:init", onObjectivesInit);
       socket.off("objectives:progress", onObjectivesProgress);
       socket.off("objectives:complete", onObjectivesComplete);
+      socket.off("joinRoomError", onJoinRoomError);
       socket.off("switchRoomError", onSwitchRoomError);
       socket.off("rateLimited", onRateLimited);
       socket.off("itemsUpdateError", onItemsUpdateError);
+      socket.off("github:authSuccess", onGithubAuthSuccess);
+      socket.off("github:repoConnected", onGithubRepoConnected);
+      socket.off("github:answer", onGithubAnswer);
+      socket.off("github:answerChunk", onGithubAnswerChunk);
+      socket.off("github:fileTree", onGithubFileTree);
+      socket.off("github:fileContent", onGithubFileContent);
+      socket.off("github:prCreated", onGithubPrCreated);
+      socket.off("github:error", onGithubError);
+      socket.off("github:issuesList", onGithubIssuesList);
+      socket.off("github:issueCreated", onGithubIssueCreated);
+      socket.off("github:issueDetail", onGithubIssueDetail);
+      socket.off("github:disconnected", onGithubDisconnected);
+      socket.off("github:repoDisconnected", onGithubRepoDisconnected);
+      socket.off("subagent:petSpawned", onSubagentPetSpawned);
+      socket.off("subagent:petDespawned", onSubagentPetDespawned);
+      socket.off("github:agentFixProgress", onAgentFixProgress);
+      socket.off("github:agentFixComplete", onAgentFixComplete);
+      socket.off("github:agentFixError", onAgentFixError);
     };
   }, []);
 };

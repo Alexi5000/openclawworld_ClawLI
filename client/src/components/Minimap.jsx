@@ -3,19 +3,7 @@ import { useRef, useEffect, useCallback, useState } from "react";
 import { charactersAtom, mapAtom, userAtom, socket, selfLivePosition } from "./SocketManager";
 import { buildModeAtom, shopModeAtom } from "./UI";
 
-// Building footprints for plaza rooms (duplicated from server/shared/roomConstants.js)
-const getBuildingFootprints = (sz) => [
-  { x: sz[0] / 2 - 6, z: 0, w: 12, d: 10, label: "Town Hall" },
-  { x: 0, z: sz[1] / 2 - 5, w: 8, d: 10, label: "Apartments" },
-  { x: sz[0] - 8, z: sz[1] / 2 - 5, w: 8, d: 10, label: "Shop" },
-  { x: 7, z: 7, w: 8, d: 8 },
-  { x: sz[0] - 15, z: 7, w: 8, d: 8 },
-  { x: sz[0] / 2 + 11, z: 1, w: 6, d: 6 },
-  { x: 0, z: 0, w: 5, d: 5 },
-  { x: sz[0] - 5, z: 0, w: 5, d: 5 },
-  { x: 0, z: sz[1] - 5, w: 5, d: 5 },
-  { x: sz[0] - 5, z: sz[1] - 5, w: 5, d: 5 },
-];
+import { getBuildingFootprints, PLAZA_LANDMARKS } from "../../../shared/roomConstants.js";
 
 const MINIMAP_WIDTH = 200;
 const MINIMAP_HEIGHT = 150;
@@ -133,7 +121,7 @@ export const Minimap = () => {
     // Building footprints (plaza rooms only)
     if (isPlaza) {
       const footprints = getBuildingFootprints(map.size);
-      footprints.forEach((fp) => {
+      footprints.forEach((fp, i) => {
         const [bx, by] = toScreen(fp.x, fp.z);
         const bw = fp.w * scale;
         const bh = fp.d * scale;
@@ -144,11 +132,12 @@ export const Minimap = () => {
         ctx.strokeRect(bx, by, bw, bh);
 
         // Label for named buildings
-        if (fp.label && scale > 1.5) {
+        const label = PLAZA_LANDMARKS[i];
+        if (label && scale > 1.5) {
           ctx.fillStyle = "rgba(71, 85, 105, 0.7)";
           ctx.font = "6px sans-serif";
           ctx.textAlign = "center";
-          ctx.fillText(fp.label, bx + bw / 2, by + bh / 2 + 2);
+          ctx.fillText(label, bx + bw / 2, by + bh / 2 + 2);
         }
       });
     }

@@ -1,4 +1,20 @@
 import bcrypt from "bcrypt";
+import {
+  scheduleAutoWave,
+  cancelAutoWavesForCharacter,
+  checkProximityGreetings,
+  cancelProximityGreetingsForCharacter,
+  trackBotActivity,
+  startRoomChatterInterval,
+  stopRoomChatterInterval,
+  cleanupBotActivityTracking,
+} from "./autoInteraction.js";
+import { getNeeds } from "./needsEngine.js";
+import { isValidWallPlacement, wallEdgeCapacity } from "./itemCatalog.js";
+import { enqueuePlacements, cancelQueue } from "./walkThenPlace.js";
+import { spawnPet, despawnPet, despawnAllAgentPets, getAgentPets } from "./petSystem.js";
+import { solveIssue } from "./agentTaskRunner.js";
+import { appendGuidelineSectionToIssueBody, normalizeGuidelineFiles } from "./issueGuidelines.js";
 
 /**
  * Registers all Socket.IO connection and event handlers.
@@ -41,6 +57,9 @@ export function registerSocketHandlers(deps) {
     checkBondMilestones,
     objectivesPayload,
     cleanupObjectives,
+    initNeeds,
+    applySocialBoost,
+    cleanupNeeds,
     getCachedRoom,
     getAllCachedRooms,
     getOrLoadRoom,
@@ -66,8 +85,17 @@ export function registerSocketHandlers(deps) {
     createSessionToken,
     agentThoughts,
     addAgentThought,
+    githubService,
+    githubStore,
+    llmBridge,
     OPEN_ACCESS = false,
     TRUST_PROXY = false,
+    ensureCellOccupancy,
+    cellKey,
+    occupyCell,
+    vacateCell,
+    isCellOccupied,
+    trimPathToFreeCell,
   } = deps;
 
   const getSocketIp = (socket) => {
@@ -203,6 +231,9 @@ export function registerSocketHandlers(deps) {
         const maxX = room.size[0] * room.gridDivision;
         const maxY = room.size[1] * room.gridDivision;
         const occupiedCells = new Set();
+        const occupiedWallCells = new Set();
+        const wallEdgeCells = { front: 0, back: 0, left: 0, right: 0 };
+        const edgeCap = (room.size[0] <= 30 && room.size[1] <= 30) ? wallEdgeCapacity(room.size, room.gridDivision) : null;
         const sanitizedItems = [];
 
         for (const rawItem of nextItems) {
@@ -235,7 +266,7 @@ export function registerSocketHandlers(deps) {
             ? Math.floor(rawItem.rotation)
             : (itemDef.rotation ?? 0);
           const normalizedRotation = ((rawRotation % 4) + 4) % 4;
-          const effectiveRotation = itemDef.rotation != null ? itemDef.rotation : normalizedRotation;
+          const effectiveRotation = normalizedRotation;
           const width = effectiveRotation === 1 || effectiveRotation === 3 ? itemDef.size[1] : itemDef.size[0];
           const height = effectiveRotation === 1 || effectiveRotation === 3 ? itemDef.size[0] : itemDef.size[1];
 
@@ -243,7 +274,45 @@ export function registerSocketHandlers(deps) {
             return { ok: false, error: `Item ${itemDef.name} is out of bounds` };
           }
 
-          if (!itemDef.walkable && !itemDef.wall) {
+          // Legacy tolerance: if the catalog now marks an item as wall-mounted but
+          // the submitted item was stored before that change (no wall flag), skip
+          // strict wall-placement validation so existing rooms remain editable.
+          const submittedAsWall = !!rawItem.wall;
+          const effectiveWall = itemDef.wall && (submittedAsWall || isValidWallPlacement(itemDef, [gx, gy], effectiveRotation, room.size, room.gridDivision));
+
+          if (submittedAsWall && !isValidWallPlacement(itemDef, [gx, gy], effectiveRotation, room.size, room.gridDivision)) {
+            return { ok: false, error: `Wall item ${itemDef.name} must be placed on a wall` };
+          }
+
+          if (effectiveWall) {
+            for (let x = 0; x < width; x++) {
+              for (let y = 0; y < height; y++) {
+                const key = `${gx + x},${gy + y}`;
+                if (occupiedWallCells.has(key)) {
+                  return { ok: false, error: `Wall item collision detected for ${itemDef.name}` };
+                }
+              }
+            }
+            for (let x = 0; x < width; x++) {
+              for (let y = 0; y < height; y++) {
+                occupiedWallCells.add(`${gx + x},${gy + y}`);
+              }
+            }
+            // Wall edge capacity check
+            if (edgeCap) {
+              const cellCount = width * height;
+              if (gy === 0) wallEdgeCells.front += cellCount;
+              if (gx === 0) wallEdgeCells.left += cellCount;
+              if (gy + height === maxY) wallEdgeCells.back += cellCount;
+              if (gx + width === maxX) wallEdgeCells.right += cellCount;
+              if (wallEdgeCells.front > edgeCap.front || wallEdgeCells.back > edgeCap.back ||
+                  wallEdgeCells.left > edgeCap.left || wallEdgeCells.right > edgeCap.right) {
+                return { ok: false, error: `Wall edge capacity exceeded for ${itemDef.name}` };
+              }
+            }
+          }
+
+          if (!itemDef.walkable && !effectiveWall) {
             for (let x = 0; x < width; x++) {
               for (let y = 0; y < height; y++) {
                 const key = `${gx + x},${gy + y}`;
@@ -266,7 +335,7 @@ export function registerSocketHandlers(deps) {
             rotation: effectiveRotation,
           };
           if (itemDef.walkable) next.walkable = true;
-          if (itemDef.wall) next.wall = true;
+          if (effectiveWall) next.wall = true;
           sanitizedItems.push(next);
         }
 
@@ -307,6 +376,7 @@ export function registerSocketHandlers(deps) {
       socket.on("joinRoom", async (roomId, opts) => {
         room = getCachedRoom(roomId) || await getOrLoadRoom(roomId, hydrateRoom);
         if (!room) {
+          socket.emit("joinRoomError", { error: "Room not found", roomId });
           return;
         }
         cancelEviction(room.id);
@@ -378,6 +448,14 @@ export function registerSocketHandlers(deps) {
           character.invitedBy = null;
         }
         room.characters.push(character);
+        ensureCellOccupancy(room);
+        if (character.position) occupyCell(room, character.position[0], character.position[1], socket.id);
+
+        // Start idle chatter interval when a bot joins
+        if (character.isBot) {
+          const roomId = room.id;
+          startRoomChatterInterval({ roomId, getRoom: () => getCachedRoom(roomId), io, bonds, applyBondProgress, saveBonds, getNeeds, botSockets });
+        }
 
         socket.emit("roomJoined", {
           map: {
@@ -399,9 +477,34 @@ export function registerSocketHandlers(deps) {
         });
         onRoomUpdate();
 
+        // Hydrate bonds — emit bondInfo for every peer this player has a bond with
+        if (character.name) {
+          for (const peer of room.characters) {
+            if (!peer.name || peer.id === socket.id) continue;
+            const key = bondKey(character.name, peer.name);
+            const bond = bonds.get(key);
+            if (!bond || bond.score <= 0) continue;
+            const level = getBondLevel(bond.score);
+            const maxLevel = level === BOND_LEVELS.length - 1;
+            socket.emit("bondInfo", {
+              peerName: peer.name,
+              score: bond.score,
+              level,
+              levelLabel: BOND_LEVELS[level].label,
+              nextThreshold: maxLevel ? null : BOND_LEVELS[level + 1].threshold,
+              maxLevel,
+            });
+          }
+        }
+
         // Initialize objectives for this session
         initObjectives(socket.id);
         socket.emit("objectives:init", objectivesPayload(socket.id));
+
+        // Initialize needs tracking for bots
+        if (character.isBot) {
+          initNeeds(socket.id);
+        }
       });
 
       socket.on("observeRoom", () => {
@@ -442,6 +545,13 @@ export function registerSocketHandlers(deps) {
       socket.on("leaveRoom", () => {
         if (!room) {
           return;
+        }
+        cancelAutoWavesForCharacter(room.id, socket.id);
+        cancelProximityGreetingsForCharacter(room.id, socket.id);
+        cleanupBotActivityTracking(socket.id);
+        if (character?.isBot) {
+          if (!room.characters.some((c) => c.id !== socket.id && c.isBot))
+            stopRoomChatterInterval(room.id);
         }
         const leavingName = character?.name || "Player";
         const leavingIsBot = character?.isBot || false;
@@ -495,6 +605,13 @@ export function registerSocketHandlers(deps) {
         unsitCharacter(room, socket.id, broadcastToRoom);
         // Leave current room
         if (room) {
+          cancelAutoWavesForCharacter(room.id, socket.id);
+          cancelProximityGreetingsForCharacter(room.id, socket.id);
+          cleanupBotActivityTracking(socket.id);
+          if (character?.isBot) {
+            if (!room.characters.some((c) => c.id !== socket.id && c.isBot))
+              stopRoomChatterInterval(room.id);
+          }
           const leavingName = character?.name || "Player";
           const leavingIsBot = character?.isBot || false;
           const leavingId = socket.id;
@@ -503,6 +620,8 @@ export function registerSocketHandlers(deps) {
           socket.leave(room.id);
           const idx = room.characters.findIndex((c) => c.id === socket.id);
           if (idx !== -1) room.characters.splice(idx, 1);
+          ensureCellOccupancy(room);
+          if (character?.position) vacateCell(room, character.position[0], character.position[1], socket.id);
           if (room.danceTimestamps) room.danceTimestamps.delete(socket.id);
           io.to(oldRoomId).emit("characterLeft", {
             id: leavingId,
@@ -540,6 +659,14 @@ export function registerSocketHandlers(deps) {
           character.invitedBy = null;
         }
         room.characters.push(character);
+        ensureCellOccupancy(room);
+        if (character.position) occupyCell(room, character.position[0], character.position[1], socket.id);
+
+        // Start idle chatter interval when a bot joins
+        if (character.isBot) {
+          const roomId = room.id;
+          startRoomChatterInterval({ roomId, getRoom: () => getCachedRoom(roomId), io, bonds, applyBondProgress, saveBonds, getNeeds, botSockets });
+        }
 
         const currentUserId = getUserId() || character.userId || null;
         socket.emit("roomJoined", {
@@ -648,6 +775,10 @@ export function registerSocketHandlers(deps) {
         const path = findPath(room, pos, spot.walkTo);
         if (!path) return;
 
+        // Release floor cell — character is logically on furniture after sitting
+        ensureCellOccupancy(room);
+        if (character.position) vacateCell(room, character.position[0], character.position[1], socket.id);
+
         // Reserve seat
         room.seatOccupancy.set(itemIndex + "-" + spot.seatIdx, socket.id);
         room.characterSeats.set(socket.id, {
@@ -679,19 +810,31 @@ export function registerSocketHandlers(deps) {
       socket.on("move", (from, to) => {
         if (!room) return;
         unsitCharacter(room, socket.id, broadcastToRoom);
+        ensureCellOccupancy(room);
+
         const path = findPath(room, from, to);
-        if (!path) {
-          return;
-        }
+        if (!path || path.length === 0) return;
+
+        // Trim path so it ends at the last unoccupied cell (stop next to people, not on them)
+        const trimmed = trimPathToFreeCell(room, path, socket.id);
+        if (!trimmed || trimmed.length === 0) return; // every cell along path is taken — stay put
+
+        const endpoint = trimmed[trimmed.length - 1];
+
+        // Release old cell, reserve new
+        if (character.position) vacateCell(room, character.position[0], character.position[1], socket.id);
+        occupyCell(room, endpoint[0], endpoint[1], socket.id);
+
         character.position = from;
-        character.path = path;
+        character.path = trimmed;
         io.to(room.id).emit("playerMove", character);
-        // Update position to path endpoint so subsequent characters/mapUpdate
-        // broadcasts reflect where the player is headed, not where they started.
-        // (Bots already do this; players need it too to prevent rubber-banding.)
-        if (path.length > 0) {
-          character.position = path[path.length - 1];
-        }
+        character.position = endpoint;
+
+        // Proximity greetings: bots wave at characters who walk near them
+        checkProximityGreetings({ room, moverId: socket.id, io, bonds, applyBondProgress, saveBonds });
+
+        // Track bot movement for idle chatter detection
+        if (character.isBot) trackBotActivity(socket.id, "move");
       });
 
 
@@ -788,6 +931,62 @@ export function registerSocketHandlers(deps) {
             cooldownMs: 10000,
           });
         }
+        // Boost social need for bot wavers
+        if (character.isBot) applySocialBoost(socket.id, 5);
+
+        // Schedule auto-wave-back from target after a natural delay.
+        // The callback emits directly to the room (bypasses wave:at handler)
+        // so it never triggers another auto-wave.
+        scheduleAutoWave({
+          roomId: room.id,
+          responderId: targetId,
+          targetId: socket.id,
+          callback: () => {
+            // Re-verify both characters are still in the room
+            const responder = room?.characters?.find((c) => c.id === targetId);
+            const initiator = room?.characters?.find((c) => c.id === socket.id);
+            if (!room || !responder || !initiator) return;
+
+            // Emit wave-back events directly to the room
+            io.to(room.id).emit("playerWaveAt", {
+              id: targetId,
+              targetId: socket.id,
+            });
+            io.to(room.id).emit("emote:play", {
+              id: targetId,
+              emote: "wave",
+            });
+
+            // Apply bond progress for the return wave
+            const responderName = responder.name;
+            const initiatorName = initiator.name;
+            if (responderName && initiatorName && responderName.toLowerCase() !== initiatorName.toLowerCase()) {
+              const result = applyBondProgress({
+                bondsMap: bonds,
+                senderName: responderName,
+                targetName: initiatorName,
+                eventType: "wave",
+                baseDelta: 1,
+                cooldownMs: 10000,
+              });
+              if (result) {
+                saveBonds();
+                const update = {
+                  score: result.bond.score,
+                  level: result.level,
+                  levelLabel: result.levelLabel,
+                  nextThreshold: result.nextThreshold,
+                  maxLevel: result.maxLevel,
+                };
+                io.to(targetId).emit("bondUpdate", { peerName: initiatorName, ...update });
+                io.to(socket.id).emit("bondUpdate", { peerName: responderName, ...update });
+                if (result.reachedMaxThisEvent) {
+                  io.to(room.id).emit("bondFormed", { nameA: responderName, nameB: initiatorName });
+                }
+              }
+            }
+          },
+        });
 
       });
 
@@ -847,6 +1046,9 @@ export function registerSocketHandlers(deps) {
           message: safeMessage,
         });
 
+        // Track bot chat activity for idle chatter detection
+        if (character.isBot) trackBotActivity(socket.id, "chat");
+
         // Sims-like bonding: conversation raises relationships with nearby characters.
         const nearby = room.characters.filter((c) => {
           if (!c || c.id === socket.id || !c.name) return false;
@@ -860,6 +1062,9 @@ export function registerSocketHandlers(deps) {
             cooldownMs: 15000,
           });
         }
+
+        // Boost social need for bot chatters
+        if (character.isBot) applySocialBoost(socket.id, 3);
       });
 
       // Search users across all rooms (for invite feature)
@@ -971,6 +1176,10 @@ export function registerSocketHandlers(deps) {
         // Leave current room (reuse switchRoom logic)
         unsitCharacter(room, socket.id, broadcastToRoom);
         if (room) {
+          if (character?.position) {
+            ensureCellOccupancy(room);
+            vacateCell(room, character.position[0], character.position[1], socket.id);
+          }
           const leavingName = character?.name || "Player";
           const leavingIsBot = character?.isBot || false;
           const leavingId = socket.id;
@@ -997,6 +1206,8 @@ export function registerSocketHandlers(deps) {
         character.path = [];
         character.canUpdateRoom = true; // Creator always has edit access
         room.characters.push(character);
+        ensureCellOccupancy(room);
+        if (character.position) occupyCell(room, character.position[0], character.position[1], socket.id);
 
         socket.emit("roomJoined", {
           map: {
@@ -1172,6 +1383,16 @@ export function registerSocketHandlers(deps) {
             }
           }
         });
+        // Rebuild cell occupancy after repositioning
+        ensureCellOccupancy(room);
+        room.cellOccupancy.clear();
+        ensureSeatMaps(room);
+        room.characters.forEach((c) => {
+          if (!room.characterSeats.has(c.id) && c.position) {
+            occupyCell(room, c.position[0], c.position[1], c.id);
+          }
+        });
+
         io.to(room.id).emit("mapUpdate", {
           map: {
             gridDivision: room.gridDivision,
@@ -1200,7 +1421,7 @@ export function registerSocketHandlers(deps) {
         const [gx, gy] = gridPosition.map(Math.floor);
         if (gx < 0 || gy < 0) return;
 
-        const rot = typeof rotation === "number" ? Math.floor(rotation) % 4 : 0;
+        const rot = typeof rotation === "number" ? Math.floor(rotation) % 4 : (itemDef.rotation ?? 0);
 
         // Calculate effective width/height with rotation
         const width = rot === 1 || rot === 3 ? (itemDef.size[1]) : (itemDef.size[0]);
@@ -1211,6 +1432,41 @@ export function registerSocketHandlers(deps) {
         const maxY = room.size[1] * room.gridDivision;
         if (gx + width > maxX || gy + height > maxY) return;
 
+        // Wall placement check
+        if (!isValidWallPlacement(itemDef, [gx, gy], rot, room.size, room.gridDivision)) return;
+
+        // Wall-vs-wall collision check + capacity check
+        if (itemDef.wall) {
+          const edgeCells = { front: 0, back: 0, left: 0, right: 0 };
+          for (const existing of room.items) {
+            if (!existing.wall) continue;
+            const ew = existing.rotation === 1 || existing.rotation === 3 ? existing.size[1] : existing.size[0];
+            const eh = existing.rotation === 1 || existing.rotation === 3 ? existing.size[0] : existing.size[1];
+            if (gx < existing.gridPosition[0] + ew && gx + width > existing.gridPosition[0] &&
+                gy < existing.gridPosition[1] + eh && gy + height > existing.gridPosition[1]) {
+              return;
+            }
+            const ec = ew * eh;
+            if (existing.gridPosition[1] === 0) edgeCells.front += ec;
+            if (existing.gridPosition[0] === 0) edgeCells.left += ec;
+            if (existing.gridPosition[1] + eh === maxY) edgeCells.back += ec;
+            if (existing.gridPosition[0] + ew === maxX) edgeCells.right += ec;
+          }
+          // Add the new item's cells
+          const newCells = width * height;
+          if (gy === 0) edgeCells.front += newCells;
+          if (gx === 0) edgeCells.left += newCells;
+          if (gy + height === maxY) edgeCells.back += newCells;
+          if (gx + width === maxX) edgeCells.right += newCells;
+          if (room.size[0] <= 30 && room.size[1] <= 30) {
+            const cap = wallEdgeCapacity(room.size, room.gridDivision);
+            if (edgeCells.front > cap.front || edgeCells.back > cap.back ||
+                edgeCells.left > cap.left || edgeCells.right > cap.right) {
+              return;
+            }
+          }
+        }
+
         // Collision check - skip for walkable/wall items
         if (!itemDef.walkable && !itemDef.wall) {
           for (let x = 0; x < width; x++) {
@@ -1220,62 +1476,445 @@ export function registerSocketHandlers(deps) {
           }
         }
 
-        // Show building action status
-        const pretty = itemName.replace(/([A-Z])/g, " $1").toLowerCase().trim();
-        io.to(room.id).emit("playerAction", {
-          id: socket.id,
-          action: "building",
-          detail: "Placing a " + pretty + "...",
-        });
-
-        // Build the new item entry
+        // Build the new item entry (not yet added to room — queue handles that)
         const newItem = {
           name: itemDef.name,
           size: itemDef.size,
           gridPosition: [gx, gy],
-          rotation: itemDef.rotation != null ? itemDef.rotation : rot,
+          rotation: rot,
         };
         if (itemDef.walkable) newItem.walkable = true;
         if (itemDef.wall) newItem.wall = true;
 
-        // Add to room and update grid incrementally
-        room.items.push(newItem);
-        addItemToGrid(room, newItem);
+        // Enqueue: bot walks to position, then places
+        enqueuePlacements({
+          botId: socket.id,
+          room,
+          items: [{ newItem, itemDef }],
+          character,
+          io,
+          findPathFn: findPath,
+          addItemToGridFn: addItemToGrid,
+          persistRoomsFn: persistRooms,
+          onPositionChange: (botId, oldPos, newPos) => {
+            ensureCellOccupancy(room);
+            if (oldPos) vacateCell(room, oldPos[0], oldPos[1], botId);
+            if (newPos) occupyCell(room, newPos[0], newPos[1], botId);
+          },
+        });
+      });
 
-        // Broadcast update
-        io.to(room.id).emit("mapUpdate", {
-          map: {
-            gridDivision: room.gridDivision,
-            size: room.size,
-            items: room.items,
+    // ─── Subagent Pet System ─────────────────────────────────────────
+
+    socket.on("subagent:spawn", ({ runId, taskType, taskLabel }) => {
+      if (!socket.data.isBot || !room) return;
+      if (typeof runId !== "string" || !runId) return;
+
+      const pet = spawnPet({
+        io, room,
+        agentId: socket.data.agentId || socket.id,
+        runId,
+        taskType,
+        taskLabel,
+        findPath,
+        generateRandomPosition,
+      });
+
+      if (pet) {
+        socket.emit("subagent:petSpawned", { runId, petId: pet.id });
+      }
+    });
+
+    socket.on("subagent:complete", ({ runId }) => {
+      if (typeof runId !== "string" || !runId) return;
+      const success = despawnPet({ io, runId, rooms });
+      if (success) {
+        socket.emit("subagent:petDespawned", { runId });
+      }
+    });
+
+    socket.on("subagent:status", (_, callback) => {
+      if (typeof callback !== "function") return;
+      const agentId = socket.data.agentId || socket.id;
+      callback(getAgentPets(agentId));
+    });
+
+    // ─── GitHub Code Assistant ───────────────────────────────────────
+
+    socket.on("github:auth", async ({ token: ghToken }) => {
+      try {
+        const userId = socket.data.userId;
+        if (!userId) return socket.emit("github:error", { action: "auth", error: "Not authenticated" });
+        const ghUser = await githubService.validateToken(ghToken);
+        githubStore.setConnection(userId, { token: ghToken, githubUsername: ghUser.login });
+        socket.emit("github:authSuccess", { username: ghUser.login });
+      } catch (err) {
+        socket.emit("github:error", { action: "auth", error: err.message });
+      }
+    });
+
+    socket.on("github:connectRepo", async ({ owner, repo }) => {
+      try {
+        const userId = socket.data.userId;
+        if (!userId) return socket.emit("github:error", { action: "connectRepo", error: "Not authenticated" });
+        const conn = githubStore.getConnection(userId);
+        if (!conn) return socket.emit("github:error", { action: "connectRepo", error: "GitHub not connected. Use /repo auth <token> first." });
+        const treeData = await githubService.fetchRepoTree(conn.token, owner, repo);
+        githubStore.addRepo(userId, owner, repo, { fileCount: treeData.tree.length, defaultBranch: "main" });
+        githubStore.setRepoTreeCache(userId, owner, repo, treeData.tree);
+        socket.emit("github:repoConnected", { owner, repo, defaultBranch: "main", fileCount: treeData.tree.length });
+      } catch (err) {
+        socket.emit("github:error", { action: "connectRepo", error: err.message });
+      }
+    });
+
+    socket.on("github:askQuestion", async ({ question, repoKey, files }) => {
+      const petRunId = `gh_ask_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      let petSpawned = false;
+      try {
+        const userId = socket.data.userId;
+        if (!userId) return socket.emit("github:error", { action: "askQuestion", error: "Not authenticated" });
+        const conn = githubStore.getConnection(userId);
+        if (!conn) return socket.emit("github:error", { action: "askQuestion", error: "GitHub not connected" });
+
+        // Spawn a pet for this task
+        if (room) {
+          const pet = spawnPet({
+            io, room,
+            agentId: socket.data.agentId || socket.id,
+            runId: petRunId,
+            taskType: "askQuestion",
+            taskLabel: "answering...",
+            findPath,
+            generateRandomPosition,
+          });
+          petSpawned = !!pet;
+        }
+
+        // Determine which repo to use
+        const repos = githubStore.getRepos(userId);
+        let targetRepo = repos[0]; // default to first
+        if (repoKey) {
+          const [o, r] = repoKey.split("/");
+          targetRepo = repos.find(rp => rp.owner === o && rp.repo === r) || targetRepo;
+        }
+        if (!targetRepo) return socket.emit("github:error", { action: "askQuestion", error: "No repo connected" });
+
+        const { owner, repo } = targetRepo;
+        const rk = `${owner}/${repo}`;
+
+        // Get repo context
+        const cached = githubStore.getRepoTreeCache(userId, owner, repo);
+        let repoContext = "";
+        if (cached) {
+          repoContext = cached.filter(f => f.type === "blob").map(f => f.path).join("\n");
+        } else {
+          const treeData = await githubService.fetchRepoTree(conn.token, owner, repo);
+          githubStore.setRepoTreeCache(userId, owner, repo, treeData.tree);
+          repoContext = treeData.tree.filter(f => f.type === "blob").map(f => f.path).join("\n");
+        }
+
+        // Optionally fetch file contents
+        const fileContents = {};
+        if (files && Array.isArray(files)) {
+          for (const fp of files.slice(0, 5)) {
+            try {
+              const fd = await githubService.fetchFileContent(conn.token, owner, repo, fp);
+              fileContents[fp] = fd.content;
+            } catch { /* skip */ }
+          }
+        }
+
+        // Stream the response
+        const fullAnswer = await llmBridge.streamCodeQuestion({
+          question, repoContext, fileContents,
+          onChunk: (chunk) => {
+            if (chunk === null) {
+              socket.emit("github:answerChunk", { chunk: "", repoKey: rk, done: true });
+            } else {
+              socket.emit("github:answerChunk", { chunk, repoKey: rk, done: false });
+            }
           },
         });
 
-        // Show completion and clear after delay
-        io.to(room.id).emit("playerAction", {
-          id: socket.id,
-          action: "done",
-          detail: "Finished placing the " + pretty + "!",
-        });
-        const roomId = room.id;
-        setTimeout(() => {
-          if (roomId) io.to(roomId).emit("playerAction", { id: socket.id, action: null });
-        }, 2500);
+        socket.emit("github:answer", { question, answer: fullAnswer, model: "claude-sonnet-4-20250514", repoKey: rk, id: `ans_${Date.now()}` });
+      } catch (err) {
+        socket.emit("github:error", { action: "askQuestion", error: err.message });
+      } finally {
+        if (petSpawned) despawnPet({ io, runId: petRunId, rooms });
+      }
+    });
 
-        // Persist
-        persistRooms(room);
-      });
+    socket.on("github:getFiles", async ({ repoKey, path: dirPath }) => {
+      try {
+        const userId = socket.data.userId;
+        if (!userId) return socket.emit("github:error", { action: "getFiles", error: "Not authenticated" });
+        const conn = githubStore.getConnection(userId);
+        if (!conn) return socket.emit("github:error", { action: "getFiles", error: "GitHub not connected" });
+
+        const repos = githubStore.getRepos(userId);
+        let targetRepo = repos[0];
+        if (repoKey) {
+          const [o, r] = repoKey.split("/");
+          targetRepo = repos.find(rp => rp.owner === o && rp.repo === r) || targetRepo;
+        }
+        if (!targetRepo) return socket.emit("github:error", { action: "getFiles", error: "No repo connected" });
+
+        const { owner, repo } = targetRepo;
+        const rk = `${owner}/${repo}`;
+        const treeData = await githubService.fetchRepoTree(conn.token, owner, repo);
+        githubStore.setRepoTreeCache(userId, owner, repo, treeData.tree);
+
+        let tree = treeData.tree;
+        if (dirPath) {
+          tree = tree.filter(f => f.path.startsWith(dirPath));
+        }
+
+        socket.emit("github:fileTree", { repoKey: rk, tree, truncated: treeData.truncated });
+      } catch (err) {
+        socket.emit("github:error", { action: "getFiles", error: err.message });
+      }
+    });
+
+    socket.on("github:getFile", async ({ repoKey, path: filePath }) => {
+      try {
+        const userId = socket.data.userId;
+        if (!userId) return socket.emit("github:error", { action: "getFile", error: "Not authenticated" });
+        const conn = githubStore.getConnection(userId);
+        if (!conn) return socket.emit("github:error", { action: "getFile", error: "GitHub not connected" });
+
+        const [owner, repo] = (repoKey || "").split("/");
+        if (!owner || !repo) return socket.emit("github:error", { action: "getFile", error: "Invalid repoKey" });
+
+        const fileData = await githubService.fetchFileContent(conn.token, owner, repo, filePath);
+        socket.emit("github:fileContent", { repoKey, path: filePath, content: fileData.content, sha: fileData.sha });
+      } catch (err) {
+        socket.emit("github:error", { action: "getFile", error: err.message });
+      }
+    });
+
+    socket.on("github:createPR", async ({ title, body: prBody, changes, repoKey }) => {
+      const petRunId = `gh_pr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      let petSpawned = false;
+      try {
+        const userId = socket.data.userId;
+        if (!userId) return socket.emit("github:error", { action: "createPR", error: "Not authenticated" });
+        const conn = githubStore.getConnection(userId);
+        if (!conn) return socket.emit("github:error", { action: "createPR", error: "GitHub not connected" });
+
+        // Spawn a pet for this task
+        if (room) {
+          const pet = spawnPet({
+            io, room,
+            agentId: socket.data.agentId || socket.id,
+            runId: petRunId,
+            taskType: "createPR",
+            taskLabel: "creating PR...",
+            findPath,
+            generateRandomPosition,
+          });
+          petSpawned = !!pet;
+        }
+
+        const repos = githubStore.getRepos(userId);
+        let targetRepo = repos[0];
+        if (repoKey) {
+          const [o, r] = repoKey.split("/");
+          targetRepo = repos.find(rp => rp.owner === o && rp.repo === r) || targetRepo;
+        }
+        if (!targetRepo) return socket.emit("github:error", { action: "createPR", error: "No repo connected" });
+
+        const { owner, repo } = targetRepo;
+        const rk = `${owner}/${repo}`;
+
+        // Get the default branch ref for branching
+        const baseSha = await githubService.fetchDefaultBranchSha(conn.token, owner, repo);
+        const branchName = `ocw-${Date.now()}`;
+        await githubService.createBranch(conn.token, owner, repo, branchName, baseSha);
+
+        if (changes && Array.isArray(changes)) {
+          for (const change of changes) {
+            // Fetch existing file SHA to support updating existing files
+            let existingSha;
+            try {
+              const existing = await githubService.fetchFileContent(conn.token, owner, repo, change.path);
+              existingSha = existing.sha;
+            } catch {
+              // File doesn't exist yet — that's fine, create it
+            }
+            await githubService.createOrUpdateFile(conn.token, owner, repo, change.path, change.content, change.message || title, branchName, existingSha);
+          }
+        }
+
+        const pr = await githubService.createPullRequest(conn.token, owner, repo, title, prBody || "", branchName, "main");
+        socket.emit("github:prCreated", { repoKey: rk, number: pr.number, html_url: pr.html_url });
+      } catch (err) {
+        socket.emit("github:error", { action: "createPR", error: err.message });
+      } finally {
+        if (petSpawned) despawnPet({ io, runId: petRunId, rooms });
+      }
+    });
+
+    socket.on("github:listIssues", async ({ repoKey }) => {
+      try {
+        const userId = socket.data.userId;
+        if (!userId) return socket.emit("github:error", { action: "listIssues", error: "Not authenticated" });
+        const conn = githubStore.getConnection(userId);
+        if (!conn) return socket.emit("github:error", { action: "listIssues", error: "GitHub not connected" });
+
+        const [owner, repo] = (repoKey || "").split("/");
+        if (!owner || !repo) return socket.emit("github:error", { action: "listIssues", error: "Invalid repoKey" });
+
+        const issues = await githubService.listIssues(conn.token, owner, repo);
+        socket.emit("github:issuesList", { repoKey, issues });
+      } catch (err) {
+        socket.emit("github:error", { action: "listIssues", error: err.message });
+      }
+    });
+
+    socket.on("github:createIssue", async ({ repoKey, title, body, labels, guidelineFiles }) => {
+      const petRunId = `gh_issue_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      let petSpawned = false;
+      try {
+        const userId = socket.data.userId;
+        if (!userId) return socket.emit("github:error", { action: "createIssue", error: "Not authenticated" });
+        const conn = githubStore.getConnection(userId);
+        if (!conn) return socket.emit("github:error", { action: "createIssue", error: "GitHub not connected" });
+
+        // Spawn a pet for this task
+        if (room) {
+          const pet = spawnPet({
+            io, room,
+            agentId: socket.data.agentId || socket.id,
+            runId: petRunId,
+            taskType: "createIssue",
+            taskLabel: "creating issue...",
+            findPath,
+            generateRandomPosition,
+          });
+          petSpawned = !!pet;
+        }
+
+        const [owner, repo] = (repoKey || "").split("/");
+        if (!owner || !repo) return socket.emit("github:error", { action: "createIssue", error: "Invalid repoKey" });
+
+        const issueBody = appendGuidelineSectionToIssueBody(body, guidelineFiles);
+        const issue = await githubService.createIssue(conn.token, owner, repo, title, issueBody, labels);
+        socket.emit("github:issueCreated", { repoKey, ...issue });
+      } catch (err) {
+        socket.emit("github:error", { action: "createIssue", error: err.message });
+      } finally {
+        if (petSpawned) despawnPet({ io, runId: petRunId, rooms });
+      }
+    });
+
+    socket.on("github:disconnect", async () => {
+      try {
+        const userId = socket.data.userId;
+        if (!userId) return socket.emit("github:error", { action: "disconnect", error: "Not authenticated" });
+        githubStore.removeConnection(userId);
+        socket.emit("github:disconnected");
+      } catch (err) {
+        socket.emit("github:error", { action: "disconnect", error: err.message });
+      }
+    });
+
+    socket.on("github:disconnectRepo", async ({ repoKey }) => {
+      try {
+        const userId = socket.data.userId;
+        if (!userId) return socket.emit("github:error", { action: "disconnectRepo", error: "Not authenticated" });
+        if (!repoKey || !repoKey.includes("/")) return socket.emit("github:error", { action: "disconnectRepo", error: "Invalid repoKey" });
+        const [owner, repo] = repoKey.split("/");
+        githubStore.removeRepo(userId, owner, repo);
+        socket.emit("github:repoDisconnected", { repoKey });
+      } catch (err) {
+        socket.emit("github:error", { action: "disconnectRepo", error: err.message });
+      }
+    });
+
+    socket.on("github:getIssue", async ({ repoKey, issueNumber }) => {
+      try {
+        const userId = socket.data.userId;
+        if (!userId) return socket.emit("github:error", { action: "getIssue", error: "Not authenticated" });
+        const conn = githubStore.getConnection(userId);
+        if (!conn) return socket.emit("github:error", { action: "getIssue", error: "GitHub not connected" });
+
+        const [owner, repo] = (repoKey || "").split("/");
+        if (!owner || !repo) return socket.emit("github:error", { action: "getIssue", error: "Invalid repoKey" });
+
+        const issue = await githubService.getIssue(conn.token, owner, repo, issueNumber);
+        socket.emit("github:issueDetail", { repoKey, issue });
+      } catch (err) {
+        socket.emit("github:error", { action: "getIssue", error: err.message });
+      }
+    });
+
+    socket.on("github:agentFix", async ({ repoKey, issueNumber, guidelineFiles }) => {
+      try {
+        const userId = socket.data.userId;
+        if (!userId) return socket.emit("github:agentFixError", { repoKey, issueNumber, error: "Not authenticated" });
+        const conn = githubStore.getConnection(userId);
+        if (!conn) return socket.emit("github:agentFixError", { repoKey, issueNumber, error: "GitHub not connected" });
+
+        const [owner, repo] = (repoKey || "").split("/");
+        if (!owner || !repo) return socket.emit("github:agentFixError", { repoKey, issueNumber, error: "Invalid repoKey" });
+
+        const issue = await githubService.getIssue(conn.token, owner, repo, issueNumber);
+
+        const result = await solveIssue({
+          token: conn.token,
+          owner,
+          repo,
+          issue,
+          io,
+          room,
+          rooms,
+          socket,
+          findPath,
+          generateRandomPosition,
+          guidelineFiles: normalizeGuidelineFiles(guidelineFiles),
+        });
+
+        socket.emit("github:agentFixComplete", {
+          repoKey,
+          issueNumber,
+          pr: result.pr,
+        });
+      } catch (err) {
+        console.error("[github:agentFix] Error:", err.message);
+        socket.emit("github:agentFixError", {
+          repoKey,
+          issueNumber,
+          error: err.message,
+        });
+      }
+    });
 
       socket.on("disconnect", () => {
         console.log("User disconnected");
+        cancelQueue(socket.id);
         unsitCharacter(room, socket.id, broadcastToRoom);
+        if (room && character?.position) {
+          ensureCellOccupancy(room);
+          vacateCell(room, character.position[0], character.position[1], socket.id);
+        }
         detachUserSocket();
         cleanupObjectives(socket.id);
+        cleanupNeeds(socket.id);
+        // Clean up pet companions for this agent
+        despawnAllAgentPets({ io, agentId: socket.data.agentId || socket.id, rooms });
         // Clean up agent socket mapping
         if (socket.data.agentId) {
           agentSocketMap.delete(socket.data.agentId);
         }
         if (room) {
+          cancelAutoWavesForCharacter(room.id, socket.id);
+          cancelProximityGreetingsForCharacter(room.id, socket.id);
+          cleanupBotActivityTracking(socket.id);
+          if (character?.isBot) {
+            if (!room.characters.some((c) => c.id !== socket.id && c.isBot))
+              stopRoomChatterInterval(room.id);
+          }
           const leavingName = character?.name || "Player";
           const leavingIsBot = character?.isBot || false;
           const leavingId = socket.id;
