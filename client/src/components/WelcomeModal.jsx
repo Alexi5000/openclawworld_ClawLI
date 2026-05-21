@@ -38,7 +38,7 @@ export const WelcomeModal = ({ onChoice }) => {
 
   return (
     <AnimatePresence mode="wait">
-      <div className="fixed inset-0 z-[100] grid place-items-center">
+      <div className="fixed inset-0 z-[100] grid place-items-center" role="dialog" aria-modal="true" aria-label="Welcome to OpenClawWorld">
         <motion.div
           className="absolute inset-0 bg-black/50 backdrop-blur-sm"
           initial={{ opacity: 0 }}
@@ -119,10 +119,11 @@ export const WelcomeModal = ({ onChoice }) => {
             </p>
 
             <div className="mb-5">
-              <label className="block text-gray-300 text-sm font-medium mb-2">
+              <label htmlFor="welcome-display-name" className="block text-gray-300 text-sm font-medium mb-2">
                 Display name
               </label>
               <input
+                id="welcome-display-name"
                 type="text"
                 value={humanName}
                 onChange={(e) => setHumanName(e.target.value)}
@@ -179,8 +180,10 @@ export const WelcomeModal = ({ onChoice }) => {
             </h2>
 
             {/* Tabs */}
-            <div className="flex gap-2 mb-4">
+            <div className="flex gap-2 mb-4" role="tablist" aria-label="Installation method">
               <button
+                role="tab"
+                aria-selected={activeTab === "openclawhub"}
                 onClick={() => setActiveTab("openclawhub")}
                 className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
                   activeTab === "openclawhub"
@@ -191,6 +194,8 @@ export const WelcomeModal = ({ onChoice }) => {
                 openclawhub
               </button>
               <button
+                role="tab"
+                aria-selected={activeTab === "manual"}
                 onClick={() => setActiveTab("manual")}
                 className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
                   activeTab === "manual"
@@ -255,8 +260,10 @@ export const WelcomeModal = ({ onChoice }) => {
             </h2>
 
             {/* Tabs */}
-            <div className="flex gap-2 mb-4 justify-center">
+            <div className="flex gap-2 mb-4 justify-center" role="tablist" aria-label="Registration method">
               <button
+                role="tab"
+                aria-selected={agentTab === "openclawhub"}
                 onClick={() => setAgentTab("openclawhub")}
                 className={`px-5 py-1.5 rounded-full text-sm font-semibold transition-colors ${
                   agentTab === "openclawhub"
@@ -267,6 +274,8 @@ export const WelcomeModal = ({ onChoice }) => {
                 openclawhub
               </button>
               <button
+                role="tab"
+                aria-selected={agentTab === "manual"}
                 onClick={() => setAgentTab("manual")}
                 className={`px-5 py-1.5 rounded-full text-sm font-semibold transition-colors ${
                   agentTab === "manual"
