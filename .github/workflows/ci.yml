@@ -1,15 +1,24 @@
-name: CI
+name: Quality
 
 on:
+  push:
+    branches:
+      - master
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  client-build:
+  quality:
+    name: Smoke test, server checks, lint, builds, and CLI package
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,48 +26,31 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: client/package-lock.json
+          node-version: 22
+
+      - name: Install server dependencies
+        run: npm --prefix server ci --no-audit --no-fund
 
       - name: Install client dependencies
-        run: npm install --no-audit --no-fund
-        working-directory: client
+        run: npm --prefix client ci --no-audit --no-fund
 
-      - name: Build client
-        run: npm run build
-        working-directory: client
+      - name: Install landing-page dependencies
+        run: npm --prefix landing-page ci --no-audit --no-fund
 
-  server-syntax:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Run repository smoke suite
+        run: npm run test
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      - name: Validate server modules
+        run: npm run check:server
 
-      - name: Validate server JavaScript syntax
-        shell: bash
-        run: |
-          set -euo pipefail
-          while IFS= read -r -d '' file; do
-            node --check "$file"
-          done < <(find server -type f -name '*.js' -not -path '*/node_modules/*' -print0)
+      - name: Lint landing page
+        run: npm run lint:landing
 
-  package-smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Build world client
+        run: npm run build:client
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      - name: Build landing page
+        run: npm run build:landing
 
-      - name: Validate CLI package can be packed
-        run: npm_config_cache="${RUNNER_TEMP}/npm-cache" npm pack --dry-run
-        working-directory: packages/openclawworld
+      - name: Verify CLI package
+        run: npm run pack:cli
