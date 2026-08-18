@@ -1,0 +1,9 @@
+# Alexi5000 maintains the fork-specific quality and governance baseline.
+/.github/CODEOWNERS @Alexi5000
+/.github/workflows/ci.yml @Alexi5000
+/README.md @Alexi5000
+/FORK_POLICY.md @Alexi5000
+/SUPPORT.md @Alexi5000
+/tests/repository-contract.test.mjs @Alexi5000
+/scripts/check-server.mjs @Alexi5000
+/package.json @Alexi5000

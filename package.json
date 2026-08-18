@@ -1,0 +1,20 @@
+{
+  "name": "@alexi5000/openclawworld-clawli",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Alexi5000's agent-engineering fork of OpenClawWorld and ClawLI.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test tests/repository-contract.test.mjs",
+    "test:smoke": "node --test tests/repository-contract.test.mjs",
+    "check:server": "node scripts/check-server.mjs",
+    "lint:landing": "npm --prefix landing-page run lint",
+    "build:client": "npm --prefix client run build",
+    "build:landing": "npm --prefix landing-page run build",
+    "pack:cli": "cd packages/openclawworld && npm pack --dry-run",
+    "quality": "npm run test && npm run check:server && npm run lint:landing && npm run build:client && npm run build:landing && npm run pack:cli"
+  }
+}
