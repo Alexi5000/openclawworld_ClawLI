@@ -6,7 +6,7 @@ import soundManager from "./SoundManager";
 
 const VolumeSlider = ({ label, value, onChange }) => (
   <div className="flex items-center gap-2">
-    <span className="text-xs text-gray-500 w-12 flex-shrink-0">{label}</span>
+    <span className="text-xs text-gray-500 w-12 shrink-0">{label}</span>
     <input
       type="range"
       min="0"
@@ -51,11 +51,11 @@ const AudioSettingsPanel = () => {
   }, [muted]);
 
   return (
-    <div className="fixed bottom-3 left-3 z-[15]">
+    <div className="fixed bottom-3 left-3 z-15">
       {/* Speaker icon button */}
       <button
         onClick={() => setOpen((p) => !p)}
-        className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-sm border border-gray-200 shadow-md flex items-center justify-center hover:bg-white transition-colors cursor-pointer"
+        className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-xs border border-gray-200 shadow-md flex items-center justify-center hover:bg-white transition-colors cursor-pointer"
         title={muted ? "Unmute (M)" : "Mute (M)"}
       >
         {muted ? (
@@ -96,7 +96,7 @@ const AudioSettingsPanel = () => {
               <VolumeSlider label="SFX" value={sfx} onChange={(v) => updateVolume("sfx", v, setSfx)} />
               <VolumeSlider label="UI" value={ui} onChange={(v) => updateVolume("ui", v, setUi)} />
             </div>
-            <p className="text-[10px] text-gray-400 mt-2 text-center">Press <kbd className="px-1 py-0.5 bg-gray-100 rounded text-gray-500 font-mono">M</kbd> to mute</p>
+            <p className="text-[10px] text-gray-400 mt-2 text-center">Press <kbd className="px-1 py-0.5 bg-gray-100 rounded-sm text-gray-500 font-mono">M</kbd> to mute</p>
           </motion.div>
         )}
       </AnimatePresence>

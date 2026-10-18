@@ -194,9 +194,9 @@ const CharacterSelectorModal = ({ onClose, currentAvatarUrl, onSelectAvatar, onC
   }, []);
 
   return (
-    <div className="fixed inset-0 z-[100] grid place-items-center">
+    <div className="fixed inset-0 z-100 grid place-items-center">
       <motion.div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/40 backdrop-blur-xs"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -245,7 +245,7 @@ const CharacterSelectorModal = ({ onClose, currentAvatarUrl, onSelectAvatar, onC
                       : "border-gray-200 hover:border-gray-400"
                   }`}
                 >
-                  <div className="w-full h-full bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
+                  <div className="w-full h-full bg-linear-to-br from-slate-50 to-slate-100 flex items-center justify-center">
                     {isLocalModel ? (
                       localThumbs[url] ? (
                         <img
@@ -331,7 +331,7 @@ const PasswordInput = ({ onClose, onSuccess }) => {
   return (
     <div className="fixed z-10 grid place-items-center w-full h-full top-0 left-0">
       <div
-        className="absolute top-0 left-0 w-full h-full bg-black bg-opacity-50 backdrop-blur-sm"
+        className="absolute top-0 left-0 w-full h-full bg-black bg-opacity-50 backdrop-blur-xs"
         onClick={onClose}
       ></div>
       <div className="bg-white rounded-lg shadow-lg p-4 z-10">
@@ -378,7 +378,7 @@ const BotConnectModal = ({ onClose }) => {
   return (
     <div className="fixed z-10 grid place-items-center w-full h-full top-0 left-0">
       <div
-        className="absolute top-0 left-0 w-full h-full bg-black bg-opacity-50 backdrop-blur-sm"
+        className="absolute top-0 left-0 w-full h-full bg-black bg-opacity-50 backdrop-blur-xs"
         onClick={onClose}
       ></div>
       <div className="z-10 max-w-md w-full mx-4 rounded-2xl shadow-2xl overflow-hidden bg-[#1a1a2e] border border-[#333]">
@@ -434,7 +434,7 @@ const BotConnectModal = ({ onClose }) => {
               </pre>
               <button
                 onClick={() => copyText(activeTab === "openclawhub" ? npxCommand : manualText, "cmd")}
-                className="absolute top-2 right-2 bg-[#2a2a3e] hover:bg-[#3a3a4e] text-gray-300 rounded px-2.5 py-1 text-xs transition-colors"
+                className="absolute top-2 right-2 bg-[#2a2a3e] hover:bg-[#3a3a4e] text-gray-300 rounded-sm px-2.5 py-1 text-xs transition-colors"
               >
                 {copied === "cmd" ? "Copied!" : "Copy"}
               </button>
@@ -444,15 +444,15 @@ const BotConnectModal = ({ onClose }) => {
           {/* Steps */}
           <div className="space-y-3 mb-5">
             <div className="flex items-start gap-3">
-              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center mt-0.5">1</span>
+              <span className="shrink-0 w-6 h-6 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center mt-0.5">1</span>
               <p className="text-gray-300 text-sm">Send this to your agent</p>
             </div>
             <div className="flex items-start gap-3">
-              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center mt-0.5">2</span>
+              <span className="shrink-0 w-6 h-6 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center mt-0.5">2</span>
               <p className="text-gray-300 text-sm">They follow SKILL.md and connect to your local server</p>
             </div>
             <div className="flex items-start gap-3">
-              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center mt-0.5">3</span>
+              <span className="shrink-0 w-6 h-6 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center mt-0.5">3</span>
               <p className="text-gray-300 text-sm">Keep this tab open and chat once they appear in-world</p>
             </div>
           </div>
@@ -522,9 +522,9 @@ const HelpModal = ({ onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] grid place-items-center">
+    <div className="fixed inset-0 z-100 grid place-items-center">
       <motion.div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/40 backdrop-blur-xs"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -538,7 +538,7 @@ const HelpModal = ({ onClose }) => {
         transition={{ type: "spring", damping: 25, stiffness: 300 }}
       >
         {/* Header */}
-        <div className="p-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+        <div className="p-5 border-b border-gray-100 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-slate-600">
@@ -558,7 +558,7 @@ const HelpModal = ({ onClose }) => {
         </div>
 
         {/* Section tabs */}
-        <div className="px-5 pt-4 pb-2 flex gap-2 flex-wrap flex-shrink-0">
+        <div className="px-5 pt-4 pb-2 flex gap-2 flex-wrap shrink-0">
           {sections.map((s) => (
             <button
               key={s.id}
@@ -590,7 +590,7 @@ const HelpModal = ({ onClose }) => {
             >
               {content[activeSection].map((item, i) => (
                 <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
-                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center mt-0.5">
+                  <span className="shrink-0 w-6 h-6 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center mt-0.5">
                     {i + 1}
                   </span>
                   <div>
@@ -604,8 +604,8 @@ const HelpModal = ({ onClose }) => {
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-gray-100 flex-shrink-0">
-          <p className="text-xs text-gray-400 text-center">Press <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-500 font-mono text-[10px]">?</kbd> anytime to open this menu</p>
+        <div className="px-5 py-3 border-t border-gray-100 shrink-0">
+          <p className="text-xs text-gray-400 text-center">Press <kbd className="px-1.5 py-0.5 bg-gray-100 rounded-sm text-gray-500 font-mono text-[10px]">?</kbd> anytime to open this menu</p>
         </div>
       </motion.div>
     </div>
@@ -634,7 +634,7 @@ const RoomTransitionOverlay = ({ transition, roomLabel }) => {
       {shouldShow && (
         <motion.div
           key="room-transition-overlay"
-          className="fixed inset-0 z-[200] grid place-items-center overflow-hidden"
+          className="fixed inset-0 z-200 grid place-items-center overflow-hidden"
           initial={{ opacity: 1, pointerEvents: "auto" }}
           animate={{ opacity: 1, pointerEvents: "auto" }}
           exit={{ opacity: 0, pointerEvents: "none" }}
@@ -688,7 +688,7 @@ const RoomTransitionOverlay = ({ transition, roomLabel }) => {
 
           {/* Main card */}
           <motion.div
-            className="relative w-[92vw] max-w-sm rounded-2xl border border-orange-400/20 bg-gradient-to-b from-orange-950/60 to-orange-950/40 backdrop-blur-md shadow-2xl px-5 py-5"
+            className="relative w-[92vw] max-w-sm rounded-2xl border border-orange-400/20 bg-linear-to-b from-orange-950/60 to-orange-950/40 backdrop-blur-md shadow-2xl px-5 py-5"
             initial={{ y: 0, scale: 1, opacity: 1 }}
             animate={{ y: 0, scale: 1, opacity: 1 }}
             exit={{ y: 8, scale: 0.985, opacity: 0 }}
@@ -811,9 +811,9 @@ const InviteModal = ({ onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] grid place-items-center">
+    <div className="fixed inset-0 z-100 grid place-items-center">
       <motion.div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/40 backdrop-blur-xs"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -827,7 +827,7 @@ const InviteModal = ({ onClose }) => {
         transition={{ type: "spring", damping: 25, stiffness: 300 }}
       >
         {/* Header */}
-        <div className="p-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+        <div className="p-5 border-b border-gray-100 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-blue-600">
@@ -847,11 +847,11 @@ const InviteModal = ({ onClose }) => {
         </div>
 
         {/* Search input */}
-        <div className="px-5 pt-4 pb-2 flex-shrink-0">
+        <div className="px-5 pt-4 pb-2 shrink-0">
           <input
             autoFocus
             type="text"
-            className="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+            className="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-hidden focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
             placeholder="Search by name..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -885,19 +885,19 @@ const InviteModal = ({ onClose }) => {
                   return (
                     <div key={user.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 transition-colors mb-1">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center shrink-0">
                           <span className="text-sm font-bold text-gray-500">{(user.name || "?")[0].toUpperCase()}</span>
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
                             <p className="font-semibold text-gray-900 text-sm truncate">{user.name}</p>
                             {user.isBot && (
-                              <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-semibold flex-shrink-0">Bot</span>
+                              <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-sm font-semibold shrink-0">Bot</span>
                             )}
                           </div>
                         </div>
                       </div>
-                      <div className="flex-shrink-0 ml-2">
+                      <div className="shrink-0 ml-2">
                         {status === "sent" ? (
                           <span className="text-xs font-semibold text-green-600 bg-green-50 px-3 py-1.5 rounded-lg">Sent!</span>
                         ) : status?.startsWith("error:") ? (
@@ -934,10 +934,10 @@ const InviteNotification = ({ invite, onAccept, onDismiss }) => {
       initial={{ opacity: 0, x: 100 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 100 }}
-      className="bg-white/95 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200 p-4 w-72 pointer-events-auto"
+      className="bg-white/95 backdrop-blur-xs rounded-xl shadow-lg border border-gray-200 p-4 w-72 pointer-events-auto"
     >
       <div className="flex items-start gap-3">
-        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center shrink-0 mt-0.5">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-blue-600">
             <path strokeLinecap="round" strokeLinejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM3 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 019.374 21c-2.331 0-4.512-.645-6.374-1.766z" />
           </svg>
@@ -946,7 +946,7 @@ const InviteNotification = ({ invite, onAccept, onDismiss }) => {
           <div className="flex items-center gap-1.5 mb-0.5">
             <p className="font-semibold text-gray-900 text-sm truncate">{invite.fromName}</p>
             {invite.fromIsBot && (
-              <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-semibold flex-shrink-0">Bot</span>
+              <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-sm font-semibold shrink-0">Bot</span>
             )}
           </div>
           <p className="text-xs text-gray-500">invited you to <span className="font-medium text-gray-700">{invite.roomName}</span></p>
@@ -1005,8 +1005,8 @@ const CreateRoomModal = ({ onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[110] grid place-items-center">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+    <div className="fixed inset-0 z-110 grid place-items-center">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={onClose} />
       <motion.div
         className="bg-white rounded-2xl shadow-2xl z-10 w-full max-w-sm mx-4 overflow-hidden"
         initial={{ scale: 0.85, opacity: 0, y: 20 }}
@@ -1039,7 +1039,7 @@ const CreateRoomModal = ({ onClose }) => {
               autoFocus
               type="text"
               maxLength={50}
-              className="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+              className="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-hidden focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
               placeholder="My Awesome Room"
               value={name}
               onChange={(e) => { setName(e.target.value); setError(""); }}
@@ -1051,7 +1051,7 @@ const CreateRoomModal = ({ onClose }) => {
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Password <span className="text-gray-400 font-normal">(optional)</span></label>
             <input
               type="text"
-              className="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+              className="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-hidden focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
               placeholder="Leave empty for public room"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -1150,9 +1150,9 @@ const RoomSelectorModal = ({ onClose, currentRoomID, onSwitchRoom }) => {
   const apartments = displayedRooms.filter(r => r.id !== "plaza");
 
   return (
-    <div className="fixed inset-0 z-[100] grid place-items-center">
+    <div className="fixed inset-0 z-100 grid place-items-center">
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/60 backdrop-blur-xs"
         onClick={onClose}
       ></div>
       <div className="bg-white rounded-3xl shadow-2xl z-10 max-w-sm w-full mx-4 max-h-[75vh] flex flex-col overflow-hidden">
@@ -1192,12 +1192,12 @@ const RoomSelectorModal = ({ onClose, currentRoomID, onSwitchRoom }) => {
               onClick={() => { onSwitchRoom(plaza.id); onClose(); }}
               className={`w-full text-left p-4 rounded-2xl flex items-center gap-4 transition-all ${
                 currentRoomID === plaza.id
-                  ? "bg-gradient-to-r from-emerald-500 to-teal-500 shadow-lg shadow-emerald-200"
-                  : "bg-gradient-to-r from-emerald-50 to-teal-50 hover:from-emerald-100 hover:to-teal-100"
+                  ? "bg-linear-to-r from-emerald-500 to-teal-500 shadow-lg shadow-emerald-200"
+                  : "bg-linear-to-r from-emerald-50 to-teal-50 hover:from-emerald-100 hover:to-teal-100"
               }`}
             >
               <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                currentRoomID === plaza.id ? "bg-white/20" : "bg-white shadow-sm"
+                currentRoomID === plaza.id ? "bg-white/20" : "bg-white shadow-xs"
               }`}>
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-6 h-6 ${currentRoomID === plaza.id ? "text-white" : "text-emerald-600"}`}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" />
@@ -1208,7 +1208,7 @@ const RoomSelectorModal = ({ onClose, currentRoomID, onSwitchRoom }) => {
                 <p className={`text-sm ${currentRoomID === plaza.id ? "text-white/80" : "text-gray-500"}`}>Public gathering space</p>
               </div>
               <div className={`px-3 py-1.5 rounded-full text-sm font-medium ${
-                currentRoomID === plaza.id ? "bg-white/20 text-white" : "bg-white text-emerald-600 shadow-sm"
+                currentRoomID === plaza.id ? "bg-white/20 text-white" : "bg-white text-emerald-600 shadow-xs"
               }`}>
                 {plaza.nbCharacters || 0} online
               </div>
@@ -1237,7 +1237,7 @@ const RoomSelectorModal = ({ onClose, currentRoomID, onSwitchRoom }) => {
               </svg>
               <input
                 type="text"
-                className="w-full border border-gray-200 bg-gray-50 rounded-xl pl-9 pr-4 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100 transition-all"
+                className="w-full border border-gray-200 bg-gray-50 rounded-xl pl-9 pr-4 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-hidden focus:border-violet-300 focus:ring-2 focus:ring-violet-100 transition-all"
                 placeholder="Search apartments..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -1277,7 +1277,7 @@ const RoomSelectorModal = ({ onClose, currentRoomID, onSwitchRoom }) => {
                   }`}
                 >
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                    currentRoomID === room.id ? "bg-violet-500" : "bg-white shadow-sm border border-gray-100"
+                    currentRoomID === room.id ? "bg-violet-500" : "bg-white shadow-xs border border-gray-100"
                   }`}>
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-5 h-5 ${currentRoomID === room.id ? "text-white" : "text-violet-500"}`}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 21v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21m0 0h4.5V3.545M12.75 21h7.5V10.75M2.25 21h1.5m18 0h-18M2.25 9l4.5-1.636M18.75 3l-1.5.545m0 6.205l3 1m1.5.5l-1.5-.5M6.75 7.364V3h-3v18m3-13.636l10.5-3.819" />
@@ -1498,8 +1498,8 @@ export const UI = () => {
       <RoomTransitionOverlay transition={roomTransition} roomLabel={toRoomLabel} />
       {/* Online Count Badge (top-right) */}
       {roomID && (
-        <div className="fixed top-2 right-3 sm:top-3 sm:right-4 z-[15] flex flex-col items-end gap-1.5">
-          <div className="bg-white/90 backdrop-blur-sm border border-gray-200 rounded-full px-3 py-1.5 flex items-center gap-2 shadow-sm">
+        <div className="fixed top-2 right-3 sm:top-3 sm:right-4 z-15 flex flex-col items-end gap-1.5">
+          <div className="bg-white/90 backdrop-blur-xs border border-gray-200 rounded-full px-3 py-1.5 flex items-center gap-2 shadow-xs">
             <img src="/favicon.ico" alt="" className="w-4 h-4" />
             <span className="text-gray-800 font-bold text-sm">{totalOnline}</span>
             <span className="text-gray-400 text-xs">{locationLabel}</span>
@@ -1520,10 +1520,10 @@ export const UI = () => {
 
       {/* Objectives Tracker */}
       {roomID && objectives && tasksVisible && (
-        <div className="fixed bottom-40 right-2 sm:bottom-32 sm:right-4 z-[5] pointer-events-none w-44 sm:w-52 max-h-[40vh] overflow-y-auto flex flex-col-reverse gap-1.5">
+        <div className="fixed bottom-40 right-2 sm:bottom-32 sm:right-4 z-5 pointer-events-none w-44 sm:w-52 max-h-[40vh] overflow-y-auto flex flex-col-reverse gap-1.5">
           {/* Bond Milestones */}
           {objectives.bondMilestones?.some(m => !m.completed) && (
-            <div className="bg-pink-50/90 backdrop-blur-sm rounded-lg px-3 py-2 border border-pink-200 shadow-sm">
+            <div className="bg-pink-50/90 backdrop-blur-xs rounded-lg px-3 py-2 border border-pink-200 shadow-xs">
               <p className="text-[10px] font-bold text-pink-600 uppercase tracking-wide mb-1">Bond Goal</p>
               {objectives.bondMilestones.filter(m => !m.completed).slice(0, 1).map(m => (
                 <div key={m.id} className="mb-0.5">
@@ -1549,9 +1549,9 @@ export const UI = () => {
               initial={{ opacity: 0, y: -20, scale: 0.9 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -10, scale: 0.95 }}
-              className="fixed top-20 left-1/2 -translate-x-1/2 z-[20] pointer-events-none"
+              className="fixed top-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none"
             >
-              <div className={`${bgClass} backdrop-blur-sm border rounded-xl px-5 py-3 shadow-lg text-center`}>
+              <div className={`${bgClass} backdrop-blur-xs border rounded-xl px-5 py-3 shadow-lg text-center`}>
                 <p className={`${headingClass} font-bold text-sm`}>{heading}</p>
                 <p className={`${subtitleClass} text-xs mt-0.5`}>{notif.title}</p>
               </div>
@@ -1564,7 +1564,7 @@ export const UI = () => {
       <DirectMessagePanel />
 
       {/* Room Invite Notifications */}
-      <div className="fixed bottom-24 right-4 z-[20] flex flex-col gap-2 pointer-events-none">
+      <div className="fixed bottom-24 right-4 z-20 flex flex-col gap-2 pointer-events-none">
         <AnimatePresence>
           {roomInvites.map((invite) => (
             <InviteNotification
@@ -1597,7 +1597,7 @@ export const UI = () => {
         {avatarMode && (
           <AvatarCreator
             subdomain="wawa-sensei-tutorial"
-            className="fixed top-0 left-0 z-[999999999] w-full h-full" // have to put a crazy z-index to be on top of HTML generated by Drei
+            className="fixed top-0 left-0 z-999999999 w-full h-full" // have to put a crazy z-index to be on top of HTML generated by Drei
             onAvatarExported={(event) => {
               let newAvatarUrl =
                 event.data.url === avatarUrl.split("?")[0]
@@ -1659,7 +1659,7 @@ export const UI = () => {
         )}
         {githubPanelOpen && <GitHubPanel onClose={() => setGithubPanelOpen(false)} />}
         {inviteAgentModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto" onClick={() => setInviteAgentModal(false)}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs pointer-events-auto" onClick={() => setInviteAgentModal(false)}>
             <div
               className="bg-gray-950 border border-gray-800 rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl shadow-black/50"
               onClick={(e) => e.stopPropagation()}
@@ -1694,7 +1694,7 @@ export const UI = () => {
             <div className="pointer-events-auto p-2 sm:p-4 flex items-center space-x-2 sm:space-x-4" onWheel={(e) => e.stopPropagation()}>
               <input
                 type="text"
-                className="w-40 sm:w-56 border border-gray-200 bg-white/90 backdrop-blur-sm px-3 sm:px-5 p-3 sm:p-4 h-full rounded-full text-sm sm:text-base text-gray-800 placeholder-gray-400"
+                className="w-40 sm:w-56 border border-gray-200 bg-white/90 backdrop-blur-xs px-3 sm:px-5 p-3 sm:p-4 h-full rounded-full text-sm sm:text-base text-gray-800 placeholder-gray-400"
                 placeholder="Message..."
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -1761,7 +1761,7 @@ export const UI = () => {
             )}
             {/* BOTTOM NAV BAR */}
             {!buildMode && !shopMode && (
-              <div className="flex items-end justify-center gap-1 sm:gap-2 pointer-events-auto bg-white/95 backdrop-blur-sm rounded-2xl px-2 py-2 sm:px-4 sm:py-3 drop-shadow-lg border border-gray-200">
+              <div className="flex items-end justify-center gap-1 sm:gap-2 pointer-events-auto bg-white/95 backdrop-blur-xs rounded-2xl px-2 py-2 sm:px-4 sm:py-3 drop-shadow-lg border border-gray-200">
                 {/* Avatar */}
                 <button
                   className="flex flex-col items-center gap-0.5 px-2 sm:px-3 py-1.5 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors group"
@@ -1843,13 +1843,13 @@ export const UI = () => {
                     {moreMenuOpen && (
                       <>
                         {/* Backdrop to close menu */}
-                        <div className="fixed inset-0 z-[15]" onClick={() => setMoreMenuOpen(false)} />
+                        <div className="fixed inset-0 z-15" onClick={() => setMoreMenuOpen(false)} />
                         <motion.div
                           initial={{ opacity: 0, y: 10, scale: 0.95 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={{ opacity: 0, y: 10, scale: 0.95 }}
                           transition={{ duration: 0.15 }}
-                          className="absolute bottom-full mb-2 right-0 w-44 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden z-[20]"
+                          className="absolute bottom-full mb-2 right-0 w-44 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden z-20"
                         >
                           {/* Emote */}
                           {roomID && (
@@ -1942,13 +1942,13 @@ export const UI = () => {
                 <AnimatePresence>
                   {emotePickerOpen && (
                     <>
-                      <div className="fixed inset-0 z-[15]" onClick={() => setEmotePickerOpen(false)} />
+                      <div className="fixed inset-0 z-15" onClick={() => setEmotePickerOpen(false)} />
                       <motion.div
                         initial={{ opacity: 0, y: 10, scale: 0.95 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 10, scale: 0.95 }}
                         transition={{ duration: 0.15 }}
-                        className="absolute bottom-full mb-2 right-0 w-64 sm:w-72 bg-white/95 backdrop-blur-md rounded-xl shadow-xl border border-gray-200 overflow-hidden z-[20] p-2"
+                        className="absolute bottom-full mb-2 right-0 w-64 sm:w-72 bg-white/95 backdrop-blur-md rounded-xl shadow-xl border border-gray-200 overflow-hidden z-20 p-2"
                       >
                         <div className="grid grid-cols-5 gap-1">
                           {[

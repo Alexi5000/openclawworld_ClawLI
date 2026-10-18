@@ -1480,13 +1480,13 @@ export const CharacterMenu = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-[20] flex items-center justify-center">
+    <div className="fixed inset-0 z-20 flex items-center justify-center">
       {/* Backdrop — click to close */}
       <div className="absolute inset-0 bg-black/30" onClick={handleClose} />
 
       <div className="relative pointer-events-auto bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200 shadow-2xl min-w-[240px] max-w-[280px] overflow-hidden">
         {/* Avatar portrait — rendered from 3D model */}
-        <div className="bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center py-5">
+        <div className="bg-linear-to-br from-gray-50 to-gray-100 flex items-center justify-center py-5">
           <div className="w-20 h-20 rounded-full overflow-hidden bg-gray-200 border-2 border-gray-300 shadow-lg">
             {portraitUrl ? (
               <img
@@ -1556,7 +1556,7 @@ export const CharacterMenu = () => {
         )}
 
         {/* Actions */}
-        <div className="px-3 py-3 bg-gradient-to-b from-white/95 to-gray-50/95 backdrop-blur-sm rounded-b-2xl border-t border-gray-100">
+        <div className="px-3 py-3 bg-linear-to-b from-white/95 to-gray-50/95 backdrop-blur-xs rounded-b-2xl border-t border-gray-100">
           <div className="grid grid-cols-4 gap-1.5">
             <button
               onClick={handleWave}

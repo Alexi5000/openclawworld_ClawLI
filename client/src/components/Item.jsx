@@ -54,7 +54,7 @@ const AgentWorkingIndicator = () => {
   return (
     <group ref={ref} position={[0, 0.8, 0]}>
       <Html center distanceFactor={8} zIndexRange={[1, 0]} style={{ pointerEvents: "none" }}>
-        <div className="flex items-center gap-1.5 bg-gray-950/90 backdrop-blur-sm border border-emerald-500/30 rounded-full px-2.5 py-1 shadow-lg shadow-emerald-500/10 whitespace-nowrap">
+        <div className="flex items-center gap-1.5 bg-gray-950/90 backdrop-blur-xs border border-emerald-500/30 rounded-full px-2.5 py-1 shadow-lg shadow-emerald-500/10 whitespace-nowrap">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-[10px] font-mono text-emerald-400">Working...</span>
         </div>

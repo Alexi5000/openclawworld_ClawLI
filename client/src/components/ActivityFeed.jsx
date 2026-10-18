@@ -104,7 +104,7 @@ export const ActivityFeed = () => {
   if (visible.length === 0) return null;
 
   return (
-    <div className="fixed top-[272px] left-3 z-[5] pointer-events-none" style={{ width: 200 }}>
+    <div className="fixed top-[272px] left-3 z-5 pointer-events-none" style={{ width: 200 }}>
       <AnimatePresence mode="popLayout">
         {visible.map((event) => {
           const config = typeConfig[event.type] || typeConfig.spawn;
@@ -117,8 +117,8 @@ export const ActivityFeed = () => {
               transition={{ type: "spring", stiffness: 400, damping: 25 }}
               className="mb-1.5"
             >
-              <div className="bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 flex items-center gap-2 border border-gray-200 shadow-sm min-w-0">
-                <span className="text-sm flex-shrink-0">🦀</span>
+              <div className="bg-white/90 backdrop-blur-xs rounded-lg px-3 py-2 flex items-center gap-2 border border-gray-200 shadow-xs min-w-0">
+                <span className="text-sm shrink-0">🦀</span>
                 <MarqueeText className="flex-1 min-w-0 text-xs text-gray-700">
                   <span className="font-semibold text-gray-900">
                     {event.name}

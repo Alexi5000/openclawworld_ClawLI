@@ -541,7 +541,7 @@ export const Room = () => {
           >
             <Apartment scale={5.9} rotation-y={Math.PI / 2} />
             <Html position={[0, 4.5, 0]} center distanceFactor={20} zIndexRange={[1, 0]} style={{ pointerEvents: "none" }}>
-              <div className="bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-lg shadow-lg border border-amber-200 whitespace-nowrap">
+              <div className="bg-white/90 backdrop-blur-xs px-3 py-1.5 rounded-lg shadow-lg border border-amber-200 whitespace-nowrap">
                 <p className="text-sm font-bold text-amber-700 text-center">APARTMENTS</p>
                 <p className="text-[10px] text-amber-500 text-center">Click to view rooms</p>
               </div>

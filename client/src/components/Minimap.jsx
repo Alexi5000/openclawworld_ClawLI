@@ -400,7 +400,7 @@ export const Minimap = () => {
     return (
       <button
         onClick={() => setCollapsed(false)}
-        className="fixed top-2 left-3 z-[15] w-8 h-8 rounded-lg bg-white/90 backdrop-blur-sm border border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-white transition-all flex items-center justify-center text-xs shadow-sm"
+        className="fixed top-2 left-3 z-15 w-8 h-8 rounded-lg bg-white/90 backdrop-blur-xs border border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-white transition-all flex items-center justify-center text-xs shadow-xs"
         title="Show minimap"
       >
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
@@ -412,10 +412,10 @@ export const Minimap = () => {
 
   return (
     <div
-      className="fixed top-2 left-3 z-[15] select-none"
+      className="fixed top-2 left-3 z-15 select-none"
       style={{ width: MINIMAP_WIDTH }}
     >
-      <div className="bg-white/95 backdrop-blur-sm rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="bg-white/95 backdrop-blur-xs rounded-xl border border-gray-200 shadow-xs overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-gray-100">
           <div className="flex items-center gap-1.5">
@@ -426,7 +426,7 @@ export const Minimap = () => {
           </div>
           <button
             onClick={() => setCollapsed(true)}
-            className="w-4 h-4 rounded text-gray-300 hover:text-gray-500 transition-colors flex items-center justify-center text-[9px] leading-none"
+            className="w-4 h-4 rounded-sm text-gray-300 hover:text-gray-500 transition-colors flex items-center justify-center text-[9px] leading-none"
             title="Hide minimap"
           >
             ✕
@@ -449,7 +449,7 @@ export const Minimap = () => {
           {/* Tooltip */}
           {tooltip && (
             <div
-              className="absolute pointer-events-none px-1.5 py-0.5 rounded bg-gray-800/90 text-white text-[9px] whitespace-nowrap shadow-sm"
+              className="absolute pointer-events-none px-1.5 py-0.5 rounded-sm bg-gray-800/90 text-white text-[9px] whitespace-nowrap shadow-xs"
               style={{
                 left: Math.min(tooltip.x + 10, MINIMAP_WIDTH - 60),
                 top: Math.max(tooltip.y - 20, 0),

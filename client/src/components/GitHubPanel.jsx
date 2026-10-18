@@ -39,7 +39,7 @@ function RepoDropdown({ value, onChange, options, placeholder, size = "md" }) {
       <button
         type="button"
         onClick={() => setOpen((p) => !p)}
-        className={`w-full flex items-center justify-between gap-2 bg-gray-900/80 border border-gray-700/50 rounded-lg font-mono transition-all duration-150 hover:border-gray-600 focus:outline-none focus:border-emerald-600/50 focus:ring-1 focus:ring-emerald-600/20 ${
+        className={`w-full flex items-center justify-between gap-2 bg-gray-900/80 border border-gray-700/50 rounded-lg font-mono transition-all duration-150 hover:border-gray-600 focus:outline-hidden focus:border-emerald-600/50 focus:ring-1 focus:ring-emerald-600/20 ${
           isSm ? "px-3 py-1.5 text-xs" : "px-3.5 py-2.5 text-sm"
         } ${open ? "border-emerald-600/50 ring-1 ring-emerald-600/20" : ""}`}
       >
@@ -63,7 +63,7 @@ function RepoDropdown({ value, onChange, options, placeholder, size = "md" }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.98 }}
             transition={{ duration: 0.15 }}
-            className="absolute z-50 mt-1.5 w-full bg-gray-900 border border-gray-700/50 rounded-lg shadow-xl shadow-black/40 overflow-hidden backdrop-blur-sm"
+            className="absolute z-50 mt-1.5 w-full bg-gray-900 border border-gray-700/50 rounded-lg shadow-xl shadow-black/40 overflow-hidden backdrop-blur-xs"
           >
             <div className="max-h-48 overflow-y-auto py-1 scrollbar-thin">
               {options.map((opt) => (
@@ -431,7 +431,7 @@ const GitHubPanel = ({ onClose }) => {
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
-        className="fixed inset-0 bg-black/50 z-[24]"
+        className="fixed inset-0 bg-black/50 z-24"
       />
 
       {/* Outer bezel — monitor frame */}
@@ -441,16 +441,16 @@ const GitHubPanel = ({ onClose }) => {
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.9 }}
         transition={{ type: "spring", damping: 28, stiffness: 260 }}
-        className="fixed z-[25] flex flex-col items-center"
+        className="fixed z-25 flex flex-col items-center"
         style={{ inset: "6vh 10vw", maxWidth: "860px", maxHeight: "640px", margin: "auto" }}
       >
         {/* Monitor body */}
         <div
-          className="flex flex-col w-full flex-1 bg-gradient-to-b from-gray-700 via-gray-800 to-gray-900 rounded-2xl shadow-2xl border border-gray-600 overflow-hidden"
+          className="flex flex-col w-full flex-1 bg-linear-to-b from-gray-700 via-gray-800 to-gray-900 rounded-2xl shadow-2xl border border-gray-600 overflow-hidden"
           style={{ boxShadow: "0 0 60px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.1)" }}
         >
         {/* Top bar — close, power LED, title, streamer toggle */}
-        <div className="flex items-center justify-between px-3 sm:px-4 py-2 bg-gradient-to-r from-gray-800 via-gray-750 to-gray-800 border-b border-gray-700">
+        <div className="flex items-center justify-between px-3 sm:px-4 py-2 bg-linear-to-r from-gray-800 via-gray-750 to-gray-800 border-b border-gray-700">
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
@@ -501,7 +501,7 @@ const GitHubPanel = ({ onClose }) => {
 
           {/* Terminal title bar */}
           <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-800 bg-gray-950/80 relative z-20">
-            <svg className="w-4 h-4 text-emerald-500 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+            <svg className="w-4 h-4 text-emerald-500 shrink-0" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
             </svg>
             <span className="text-xs font-mono text-emerald-500">
@@ -562,7 +562,7 @@ const GitHubPanel = ({ onClose }) => {
                           onChange={(e) => setToken(e.target.value)}
                           onKeyDown={(e) => e.key === "Enter" && handleAuth()}
                           placeholder="ghp_xxxxxxxxxxxx"
-                          className="flex-1 border border-gray-700 rounded-lg px-3 py-2 text-sm bg-gray-900 text-emerald-300 font-mono focus:outline-none focus:border-emerald-600 placeholder-gray-700"
+                          className="flex-1 border border-gray-700 rounded-lg px-3 py-2 text-sm bg-gray-900 text-emerald-300 font-mono focus:outline-hidden focus:border-emerald-600 placeholder-gray-700"
                         />
                         <button
                           onClick={handleAuth}
@@ -618,7 +618,7 @@ const GitHubPanel = ({ onClose }) => {
                             <div key={key} className="flex items-center justify-between border border-gray-800 rounded-lg px-3 py-2">
                               <span className="text-sm font-mono text-emerald-300 truncate">{redactRepo(key)}</span>
                               {fileCount != null && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-900/40 text-emerald-400 font-mono flex-shrink-0 ml-2">
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-900/40 text-emerald-400 font-mono shrink-0 ml-2">
                                   {fileCount} files
                                 </span>
                               )}
@@ -659,19 +659,19 @@ const GitHubPanel = ({ onClose }) => {
                               className="flex items-center justify-between border border-gray-800 rounded-lg px-3 py-2"
                             >
                               <div className="flex items-center gap-2 min-w-0">
-                                <svg className="w-4 h-4 text-gray-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                                <svg className="w-4 h-4 text-gray-600 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
                                 </svg>
                                 <span className="text-sm font-mono text-emerald-300 truncate">{redactRepo(key)}</span>
                                 {fileCount != null && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-900/40 text-emerald-400 font-mono flex-shrink-0">
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-900/40 text-emerald-400 font-mono shrink-0">
                                     {fileCount} files
                                   </span>
                                 )}
                               </div>
                               <button
                                 onClick={() => handleDisconnectRepo(key)}
-                                className="text-xs text-red-400 hover:text-red-300 font-mono transition-colors flex-shrink-0 ml-2"
+                                className="text-xs text-red-400 hover:text-red-300 font-mono transition-colors shrink-0 ml-2"
                               >
                                 disconnect
                               </button>
@@ -693,7 +693,7 @@ const GitHubPanel = ({ onClose }) => {
                           onChange={(e) => setRepoInput(e.target.value)}
                           onKeyDown={(e) => e.key === "Enter" && handleAddRepo()}
                           placeholder="owner/repo"
-                          className="flex-1 border border-gray-700 rounded-lg px-3 py-2 text-sm bg-gray-900 text-emerald-300 font-mono focus:outline-none focus:border-emerald-600 placeholder-gray-700"
+                          className="flex-1 border border-gray-700 rounded-lg px-3 py-2 text-sm bg-gray-900 text-emerald-300 font-mono focus:outline-hidden focus:border-emerald-600 placeholder-gray-700"
                         />
                         <button
                           onClick={handleAddRepo}
@@ -817,7 +817,7 @@ const GitHubPanel = ({ onClose }) => {
                         return (
                           <div key={i} className="flex justify-end">
                             <div className="max-w-[85%] bg-emerald-800/40 border border-emerald-700/30 text-emerald-300 px-3 py-2 rounded-xl rounded-br-sm text-sm font-mono">
-                              <p className="break-words">{entry.text}</p>
+                              <p className="wrap-break-word">{entry.text}</p>
                             </div>
                           </div>
                         );
@@ -826,7 +826,7 @@ const GitHubPanel = ({ onClose }) => {
                         return (
                           <div key={i} className="flex justify-start">
                             <div className="max-w-[85%] bg-red-950/30 border border-red-800/30 text-red-400 px-3 py-2 rounded-xl rounded-bl-sm text-sm font-mono">
-                              <p className="break-words">{entry.error}</p>
+                              <p className="wrap-break-word">{entry.error}</p>
                             </div>
                           </div>
                         );
@@ -835,7 +835,7 @@ const GitHubPanel = ({ onClose }) => {
                         <div key={i} className="flex justify-start">
                           <div className="max-w-[85%] bg-gray-900 border border-gray-800 text-emerald-300 px-3 py-2 rounded-xl rounded-bl-sm text-sm font-mono">
                             {entry.answer ? (
-                              <div className="break-words">
+                              <div className="wrap-break-word">
                                 {renderMessageContent(entry.answer)}
                               </div>
                             ) : entry.streaming ? (
@@ -901,7 +901,7 @@ const GitHubPanel = ({ onClose }) => {
                           }`}
                         >
                           <div className="flex items-start gap-2.5">
-                            <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${
+                            <div className={`mt-1 w-2 h-2 rounded-full shrink-0 ${
                               issue.state === "closed"
                                 ? "bg-purple-500/50"
                                 : issue.fixPRUrl
@@ -926,7 +926,7 @@ const GitHubPanel = ({ onClose }) => {
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     onClick={(e) => e.stopPropagation()}
-                                    className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20 flex-shrink-0 hover:bg-amber-500/20 transition-colors"
+                                    className="text-[10px] px-1.5 py-0.5 rounded-sm font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0 hover:bg-amber-500/20 transition-colors"
                                   >
                                     PR pending
                                   </a>
@@ -934,7 +934,7 @@ const GitHubPanel = ({ onClose }) => {
                                 {issue.labels && issue.labels.map((label) => (
                                   <span
                                     key={label.name}
-                                    className="text-[10px] px-1.5 py-0.5 rounded font-mono"
+                                    className="text-[10px] px-1.5 py-0.5 rounded-sm font-mono"
                                     style={{
                                       backgroundColor: label.color ? `#${label.color}15` : "rgba(52, 211, 153, 0.08)",
                                       color: label.color ? `#${label.color}` : "rgb(52, 211, 153)",
@@ -944,7 +944,7 @@ const GitHubPanel = ({ onClose }) => {
                                     {label.name}
                                   </span>
                                 ))}
-                                <span className="text-[10px] text-gray-700 font-mono ml-auto flex-shrink-0">
+                                <span className="text-[10px] text-gray-700 font-mono ml-auto shrink-0">
                                   {redact(issue.user)} &middot; {new Date(issue.created_at).toLocaleDateString()}
                                 </span>
                               </div>
@@ -961,7 +961,7 @@ const GitHubPanel = ({ onClose }) => {
                                 Issues
                               </p>
                               {(openIssues.length > 0 || closedIssues.length > 0) && (
-                                <span className="text-[10px] text-gray-600 font-mono bg-gray-800/50 px-1.5 py-0.5 rounded">
+                                <span className="text-[10px] text-gray-600 font-mono bg-gray-800/50 px-1.5 py-0.5 rounded-sm">
                                   {openIssues.length + closedIssues.length}
                                 </span>
                               )}
@@ -1029,14 +1029,14 @@ const GitHubPanel = ({ onClose }) => {
                           value={newIssueTitle}
                           onChange={(e) => setNewIssueTitle(e.target.value)}
                           placeholder="Issue title"
-                          className="w-full border border-gray-700 rounded-lg px-3 py-2 text-sm bg-gray-900 text-emerald-300 font-mono focus:outline-none focus:border-emerald-600 placeholder-gray-700"
+                          className="w-full border border-gray-700 rounded-lg px-3 py-2 text-sm bg-gray-900 text-emerald-300 font-mono focus:outline-hidden focus:border-emerald-600 placeholder-gray-700"
                         />
                         <textarea
                           value={newIssueBody}
                           onChange={(e) => setNewIssueBody(e.target.value)}
                           placeholder="Description (optional)"
                           rows={4}
-                          className="w-full border border-gray-700 rounded-lg px-3 py-2 text-sm bg-gray-900 text-emerald-300 font-mono focus:outline-none focus:border-emerald-600 placeholder-gray-700 resize-none"
+                          className="w-full border border-gray-700 rounded-lg px-3 py-2 text-sm bg-gray-900 text-emerald-300 font-mono focus:outline-hidden focus:border-emerald-600 placeholder-gray-700 resize-none"
                         />
                         <div className="space-y-2">
                           <div className="flex items-center justify-between gap-3">
@@ -1092,7 +1092,7 @@ const GitHubPanel = ({ onClose }) => {
                                 value={createGuidelineSearch}
                                 onChange={(e) => setCreateGuidelineSearch(e.target.value)}
                                 placeholder="Search repo files..."
-                                className="w-full px-3 py-1.5 text-xs bg-gray-900 text-emerald-300 font-mono border-b border-gray-800 focus:outline-none placeholder-gray-700"
+                                className="w-full px-3 py-1.5 text-xs bg-gray-900 text-emerald-300 font-mono border-b border-gray-800 focus:outline-hidden placeholder-gray-700"
                                 autoFocus
                               />
                               <div className="overflow-y-auto max-h-28">
@@ -1198,7 +1198,7 @@ const GitHubPanel = ({ onClose }) => {
                             )}
                             {githubIssueDetail.body && (
                               <div className="border-t border-gray-800 pt-3">
-                                <pre className="text-sm text-emerald-300/80 font-mono whitespace-pre-wrap break-words">
+                                <pre className="text-sm text-emerald-300/80 font-mono whitespace-pre-wrap wrap-break-word">
                                   {githubIssueDetail.body}
                                 </pre>
                               </div>
@@ -1275,7 +1275,7 @@ const GitHubPanel = ({ onClose }) => {
                                     value={fixGuidelineSearch}
                                     onChange={(e) => setFixGuidelineSearch(e.target.value)}
                                     placeholder="Search repo files..."
-                                    className="w-full px-3 py-1.5 text-xs bg-gray-900 text-emerald-300 font-mono border-b border-gray-800 focus:outline-none placeholder-gray-700"
+                                    className="w-full px-3 py-1.5 text-xs bg-gray-900 text-emerald-300 font-mono border-b border-gray-800 focus:outline-hidden placeholder-gray-700"
                                     autoFocus
                                   />
                                   <div className="overflow-y-auto max-h-28">
@@ -1449,7 +1449,7 @@ const GitHubPanel = ({ onClose }) => {
                     value={filePickerSearch}
                     onChange={(e) => setFilePickerSearch(e.target.value)}
                     placeholder="Search files..."
-                    className="w-full px-3 py-1.5 text-xs bg-gray-900 text-emerald-300 font-mono border-b border-gray-800 focus:outline-none placeholder-gray-700"
+                    className="w-full px-3 py-1.5 text-xs bg-gray-900 text-emerald-300 font-mono border-b border-gray-800 focus:outline-hidden placeholder-gray-700"
                     autoFocus
                   />
                   <div className="overflow-y-auto max-h-28">
@@ -1498,7 +1498,7 @@ const GitHubPanel = ({ onClose }) => {
                   onChange={(e) => setQuestion(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleAsk()}
                   placeholder="Ask about the code..."
-                  className="flex-1 border border-gray-700 rounded-xl px-3 py-2 text-sm bg-gray-900 text-emerald-300 font-mono focus:outline-none focus:border-emerald-600 placeholder-gray-700"
+                  className="flex-1 border border-gray-700 rounded-xl px-3 py-2 text-sm bg-gray-900 text-emerald-300 font-mono focus:outline-hidden focus:border-emerald-600 placeholder-gray-700"
                 />
                 <button
                   onClick={handleAsk}
@@ -1512,11 +1512,11 @@ const GitHubPanel = ({ onClose }) => {
         </div>
         </div>
         {/* Monitor stand */}
-        <div className="flex flex-col items-center flex-shrink-0">
+        <div className="flex flex-col items-center shrink-0">
           {/* Neck */}
-          <div className="w-8 h-4 bg-gradient-to-b from-gray-700 to-gray-800 rounded-b-sm" />
+          <div className="w-8 h-4 bg-linear-to-b from-gray-700 to-gray-800 rounded-b-sm" />
           {/* Base */}
-          <div className="w-28 h-2.5 bg-gradient-to-b from-gray-700 to-gray-800 rounded-full border border-gray-600" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.4)" }} />
+          <div className="w-28 h-2.5 bg-linear-to-b from-gray-700 to-gray-800 rounded-full border border-gray-600" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.4)" }} />
         </div>
       </motion.div>
     </AnimatePresence>
