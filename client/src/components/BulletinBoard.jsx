@@ -42,7 +42,7 @@ const ThoughtCard = ({ thought, index = 0, onClick }) => {
 
       {/* Note */}
       <div
-        className="relative pt-3 pb-3 px-4 rounded-sm"
+        className="relative pt-3 pb-3 px-4 rounded-xs"
         style={{
           background: 'linear-gradient(145deg, #fffbeb 0%, #fef3c7 50%, #fde68a 100%)',
           boxShadow: `
@@ -97,10 +97,10 @@ const NoteModal = ({ note, onClose }) => {
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+      className="fixed inset-0 z-60 flex items-center justify-center p-4"
       onClick={onClose}
     >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-xs" />
 
       {/* Note container with tape effect */}
       <div
@@ -123,7 +123,7 @@ const NoteModal = ({ note, onClose }) => {
 
         {/* The note itself */}
         <div
-          className="relative rounded-sm overflow-hidden"
+          className="relative rounded-xs overflow-hidden"
           style={{
             background: 'linear-gradient(165deg, #fffbeb 0%, #fef3c7 30%, #fde68a 100%)',
             boxShadow: `
@@ -338,7 +338,7 @@ export const BulletinBoard = (props) => {
 
       {/* Label */}
       <Html position={[0, 1.4, 0]} center distanceFactor={20} zIndexRange={[1, 0]} style={{ pointerEvents: "none" }}>
-        <div className="bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-lg shadow-lg border border-amber-300 whitespace-nowrap">
+        <div className="bg-white/90 backdrop-blur-xs px-3 py-1.5 rounded-lg shadow-lg border border-amber-300 whitespace-nowrap">
           <p className="text-sm font-bold text-amber-800 text-center">BULLETIN BOARD</p>
           <p className="text-[10px] text-amber-500 text-center">Click to read</p>
         </div>

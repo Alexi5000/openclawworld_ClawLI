@@ -195,7 +195,7 @@ export const Lobby = () => {
         <group position={[-5, 0, -1]}>
           <Apartment scale={4.3} />
           <Html position={[0, 3.5, 0]} center distanceFactor={15} zIndexRange={[1, 0]} style={{ pointerEvents: "none" }}>
-            <div className="bg-white/90 backdrop-blur-sm px-2 py-1 rounded-md shadow-md border border-amber-200 whitespace-nowrap">
+            <div className="bg-white/90 backdrop-blur-xs px-2 py-1 rounded-md shadow-md border border-amber-200 whitespace-nowrap">
               <p className="text-xs font-bold text-amber-700 text-center">APARTMENTS</p>
             </div>
           </Html>

@@ -177,7 +177,7 @@ const DirectMessagePanel = () => {
                         : "bg-slate-800 text-white"
                     }`}
                   >
-                    <p className="break-words">{msg.message}</p>
+                    <p className="wrap-break-word">{msg.message}</p>
                     <p className={`text-[10px] mt-0.5 ${msg.incoming ? "text-gray-400" : "text-gray-300"}`}>
                       {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </p>
@@ -200,7 +200,7 @@ const DirectMessagePanel = () => {
                 onChange={(e) => setMessage(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && sendMessage()}
                 placeholder="Type a message..."
-                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-50 focus:outline-none focus:border-slate-400"
+                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-50 focus:outline-hidden focus:border-slate-400"
               />
               <button
                 onClick={sendMessage}

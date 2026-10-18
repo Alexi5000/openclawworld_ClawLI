@@ -38,7 +38,7 @@ export const BubblesBackground = () => {
   );
 
   return (
-    <div className="loader-bg fixed inset-0 z-[45] pointer-events-none overflow-hidden">
+    <div className="loader-bg fixed inset-0 z-45 pointer-events-none overflow-hidden">
       {bubbles.map((b, i) => (
         <div
           key={i}

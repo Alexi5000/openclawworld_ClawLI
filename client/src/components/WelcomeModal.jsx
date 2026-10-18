@@ -38,9 +38,9 @@ export const WelcomeModal = ({ onChoice }) => {
 
   return (
     <AnimatePresence mode="wait">
-      <div className="fixed inset-0 z-[100] grid place-items-center">
+      <div className="fixed inset-0 z-100 grid place-items-center">
         <motion.div
-          className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+          className="absolute inset-0 bg-black/50 backdrop-blur-xs"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3 }}
@@ -130,7 +130,7 @@ export const WelcomeModal = ({ onChoice }) => {
                   if (e.key === "Enter") submitHumanEntry(humanName);
                 }}
                 placeholder="Enter your name..."
-                className="w-full bg-[#0f0f0f] border border-[#333] rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-sky-500 transition-colors"
+                className="w-full bg-[#0f0f0f] border border-[#333] rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-hidden focus:border-sky-500 transition-colors"
                 maxLength={20}
                 autoFocus
               />
@@ -209,7 +209,7 @@ export const WelcomeModal = ({ onChoice }) => {
               </pre>
               <button
                 onClick={() => copyText(activeTab === "openclawhub" ? npxCommand : manualText, "cmd")}
-                className="absolute top-2 right-2 bg-[#2a2a3e] hover:bg-[#3a3a4e] text-gray-300 rounded px-2.5 py-1 text-xs transition-colors"
+                className="absolute top-2 right-2 bg-[#2a2a3e] hover:bg-[#3a3a4e] text-gray-300 rounded-sm px-2.5 py-1 text-xs transition-colors"
               >
                 {copied === "cmd" ? "Copied!" : "Copy"}
               </button>
@@ -218,15 +218,15 @@ export const WelcomeModal = ({ onChoice }) => {
             {/* Steps */}
             <div className="space-y-3">
               <div className="flex items-start gap-3">
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center mt-0.5">1</span>
+                <span className="shrink-0 w-6 h-6 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center mt-0.5">1</span>
                 <p className="text-gray-300 text-sm">Send this to your agent</p>
               </div>
               <div className="flex items-start gap-3">
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center mt-0.5">2</span>
+                <span className="shrink-0 w-6 h-6 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center mt-0.5">2</span>
                 <p className="text-gray-300 text-sm">They follow SKILL.md and connect to your local server</p>
               </div>
               <div className="flex items-start gap-3">
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center mt-0.5">3</span>
+                <span className="shrink-0 w-6 h-6 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center mt-0.5">3</span>
                 <p className="text-gray-300 text-sm">Keep this tab open and chat once they appear in-world</p>
               </div>
             </div>
@@ -285,7 +285,7 @@ export const WelcomeModal = ({ onChoice }) => {
               </pre>
               <button
                 onClick={() => copyText(agentTab === "openclawhub" ? npxCommand : agentCurlCommand, "agent-cmd")}
-                className="absolute top-2 right-2 bg-[#2a2a3e] hover:bg-[#3a3a4e] text-gray-300 rounded px-2.5 py-1 text-xs transition-colors"
+                className="absolute top-2 right-2 bg-[#2a2a3e] hover:bg-[#3a3a4e] text-gray-300 rounded-sm px-2.5 py-1 text-xs transition-colors"
               >
                 {copied === "agent-cmd" ? "Copied!" : "Copy"}
               </button>
@@ -294,15 +294,15 @@ export const WelcomeModal = ({ onChoice }) => {
             {/* Steps */}
             <div className="space-y-3">
               <div className="flex items-start gap-3">
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center mt-0.5">1</span>
+                <span className="shrink-0 w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center mt-0.5">1</span>
                 <p className="text-gray-300 text-sm">Run the command above to get started</p>
               </div>
               <div className="flex items-start gap-3">
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center mt-0.5">2</span>
+                <span className="shrink-0 w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center mt-0.5">2</span>
                 <p className="text-gray-300 text-sm">Connect to the local server and join the plaza</p>
               </div>
               <div className="flex items-start gap-3">
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center mt-0.5">3</span>
+                <span className="shrink-0 w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center mt-0.5">3</span>
                 <p className="text-gray-300 text-sm">Your human can open the game directly at localhost and chat with you</p>
               </div>
             </div>

@@ -38,7 +38,7 @@ export const ChatLog = () => {
           <div
             ref={scrollRef}
             style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-            className="h-full bg-white/90 backdrop-blur-sm rounded-xl p-3 overflow-y-auto pointer-events-auto border border-gray-200 shadow-sm
+            className="h-full bg-white/90 backdrop-blur-xs rounded-xl p-3 overflow-y-auto pointer-events-auto border border-gray-200 shadow-xs
               [&::-webkit-scrollbar]:hidden"
             onWheel={(e) => e.stopPropagation()}
           >
