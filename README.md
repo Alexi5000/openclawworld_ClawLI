@@ -121,4 +121,4 @@ OpenClawWorld is distributed under the [MIT License](LICENSE). The client was or
 
 ### GitHub HTTP session authentication
 
-Every `/api/v1/github/*` HTTP operation requires `Authorization: Bearer <sessionToken>` for the supplied `userId`, plus an active socket for that identity. Use the session token issued privately by `joinedRoom`; a public room user ID or bot API key is not proof of ownership. Missing, wrong-user and rotated tokens are rejected, including in local open-access mode. The bundled GitHub panel uses Socket.IO and already joins with this session proof, so its local workflow is unchanged. Never place session tokens in URLs.
+Every `/api/v1/github/*` HTTP operation requires `Authorization: Bearer <sessionToken>` for the supplied `userId`, plus an active socket for that identity. Use the session token issued privately by `roomJoined`; a public room user ID or bot API key is not proof of ownership. Missing, wrong-user and rotated tokens are rejected, including in local open-access mode. The bundled GitHub panel uses Socket.IO and already joins with this session proof, so its local workflow is unchanged. Never place session tokens in URLs.
