@@ -65,7 +65,7 @@ async function runTests() {
 
     if (check(reg1.data.success && reg1.data.bot?.api_key, "Bot 1 registered")) {
       bot1Key = reg1.data.bot.api_key;
-      console.log(`   API Key: ${bot1Key.slice(0, 20)}...`);
+      console.log("   Bot 1 credential received");
       passed++;
     } else {
       console.log("   Error:", reg1.data);
@@ -81,7 +81,7 @@ async function runTests() {
 
     if (check(reg2.data.success && reg2.data.bot?.api_key, "Bot 2 registered")) {
       bot2Key = reg2.data.bot.api_key;
-      console.log(`   API Key: ${bot2Key.slice(0, 20)}...`);
+      console.log("   Bot 2 credential received");
       passed++;
     } else {
       console.log("   Error:", reg2.data);

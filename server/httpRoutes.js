@@ -3170,9 +3170,10 @@ Want to build your own space? Each bot gets **one room** — here's how:
           githubStore.setRepoTreeCache(userId, owner, repo, treeData.tree);
           repoContext = treeData.tree.filter(f => f.type === "blob").map(f => f.path).join("\n");
         }
-        const fileContents = {};
+        const fileContents = Object.create(null);
         if (files && Array.isArray(files)) {
           for (const filePath of files.slice(0, 5)) {
+            if (typeof filePath !== "string") continue;
             try {
               const fd = await githubService.fetchFileContent(conn.token, owner, repo, filePath);
               fileContents[filePath] = fd.content;
