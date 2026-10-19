@@ -24,11 +24,12 @@ test('GitHub HTTP routes require possession of the active user session', async (
     await setSessionToken(attacker, otherSecret);
     const sockets = new Map([['socket', { data: { userId: victim } }]]);
     let reads = 0;
+    let disconnects = 0;
     const handler = createHttpHandler({
       rooms: [], botRegistry: new Map(), botSockets: new Map(),
       hashApiKey: value => value, limitHttp: () => false,
       ALLOWED_ORIGINS: ["http://localhost:5174"], io: { sockets: { sockets } },
-      githubStore: { getConnection: () => { reads++; return { githubUsername: 'private-account' }; } },
+      githubStore: { removeConnection: () => { disconnects++; }, getConnection: () => { reads++; return { githubUsername: 'private-account' }; } },
     });
     server = createServer(handler);
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -55,6 +56,13 @@ test('GitHub HTTP routes require possession of the active user session', async (
     const status = () => fetch(`${base}/api/v1/github/status?userId=${victim}`, { headers: { authorization: `Bearer ${secret}` } });
     assert.equal((await status()).status, 200);
     assert.equal(reads, 1);
+    const disconnect = await fetch(`${base}/api/v1/github/disconnect`, {
+      method: 'POST', signal: AbortSignal.timeout(2000),
+      headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ userId: victim }),
+    });
+    assert.equal(disconnect.status, 200);
+    assert.equal(disconnects, 1);
     sockets.clear();
     assert.equal((await status()).status, 401);
     sockets.set('socket', { data: { userId: victim } });
