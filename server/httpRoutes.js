@@ -1,3 +1,4 @@
+import { validateSessionToken } from "./userStore.js";
 import crypto from "crypto";
 import pathfinding from "pathfinding";
 import * as db from "./db.js";
@@ -3026,9 +3027,11 @@ Want to build your own space? Each bot gets **one room** — here's how:
 
     // ─── GitHub Code Assistant ───────────────────────────────────────
 
-    // Validate that a userId corresponds to an active socket connection
-    const validateGithubUser = (userId) => {
-      if (!userId) return false;
+    const validateGithubUser = async (userId) => {
+      if (typeof userId !== "string" || !userId) return false;
+      const authorization = req.headers.authorization;
+      if (typeof authorization !== "string" || !authorization.startsWith("Bearer ")) return false;
+      if (!(await validateSessionToken(userId, authorization.slice(7)))) return false;
       for (const [, s] of deps.io.sockets.sockets) {
         if (s.data.userId === userId) return true;
       }
@@ -3040,10 +3043,10 @@ Want to build your own space? Each bot gets **one room** — here's how:
     // POST /api/v1/github/auth — validate PAT and store connection
     if (req.method === "POST" && url.pathname === "/api/v1/github/auth") {
       try {
-        const body = await readBody(req);
+        const body = reqBody || {};
         const { token: ghToken, userId } = body;
         if (!ghToken || !userId) return json(res, 400, { success: false, error: "token and userId required" });
-        if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+        if (!(await validateGithubUser(userId))) return json(res, 401, { success: false, error: "Invalid session" });
         const ghUser = await githubService.validateToken(ghToken);
         githubStore.setConnection(userId, { token: ghToken, githubUsername: ghUser.login });
         return json(res, 200, { success: true, username: ghUser.login });
@@ -3056,7 +3059,7 @@ Want to build your own space? Each bot gets **one room** — here's how:
     if (req.method === "GET" && url.pathname === "/api/v1/github/status") {
       const userId = url.searchParams.get("userId");
       if (!userId) return json(res, 400, { success: false, error: "userId required" });
-      if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+      if (!(await validateGithubUser(userId))) return json(res, 401, { success: false, error: "Invalid session" });
       const conn = githubStore.getConnection(userId);
       return json(res, 200, { success: true, connected: !!conn, username: conn?.githubUsername || null });
     }
@@ -3064,10 +3067,10 @@ Want to build your own space? Each bot gets **one room** — here's how:
     // POST /api/v1/github/disconnect
     if (req.method === "POST" && url.pathname === "/api/v1/github/disconnect") {
       try {
-        const body = await readBody(req);
+        const body = reqBody || {};
         const { userId } = body;
         if (!userId) return json(res, 400, { success: false, error: "userId required" });
-        if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+        if (!(await validateGithubUser(userId))) return json(res, 401, { success: false, error: "Invalid session" });
         githubStore.removeConnection(userId);
         return json(res, 200, { success: true });
       } catch (err) {
@@ -3078,10 +3081,10 @@ Want to build your own space? Each bot gets **one room** — here's how:
     // POST /api/v1/github/repos/connect
     if (req.method === "POST" && url.pathname === "/api/v1/github/repos/connect") {
       try {
-        const body = await readBody(req);
+        const body = reqBody || {};
         const { owner, repo, userId } = body;
         if (!owner || !repo || !userId) return json(res, 400, { success: false, error: "owner, repo, and userId required" });
-        if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+        if (!(await validateGithubUser(userId))) return json(res, 401, { success: false, error: "Invalid session" });
         const conn = githubStore.getConnection(userId);
         if (!conn) return json(res, 401, { success: false, error: "GitHub not connected" });
         const treeData = await githubService.fetchRepoTree(conn.token, owner, repo);
@@ -3096,10 +3099,10 @@ Want to build your own space? Each bot gets **one room** — here's how:
     // DELETE /api/v1/github/repos/disconnect
     if (req.method === "DELETE" && url.pathname === "/api/v1/github/repos/disconnect") {
       try {
-        const body = await readBody(req);
+        const body = reqBody || {};
         const { owner, repo, userId } = body;
         if (!owner || !repo || !userId) return json(res, 400, { success: false, error: "owner, repo, and userId required" });
-        if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+        if (!(await validateGithubUser(userId))) return json(res, 401, { success: false, error: "Invalid session" });
         githubStore.removeRepo(userId, owner, repo);
         return json(res, 200, { success: true });
       } catch (err) {
@@ -3111,7 +3114,7 @@ Want to build your own space? Each bot gets **one room** — here's how:
     if (req.method === "GET" && url.pathname === "/api/v1/github/repos") {
       const userId = url.searchParams.get("userId");
       if (!userId) return json(res, 400, { success: false, error: "userId required" });
-      if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+      if (!(await validateGithubUser(userId))) return json(res, 401, { success: false, error: "Invalid session" });
       return json(res, 200, { success: true, repos: githubStore.getRepos(userId) });
     }
 
@@ -3120,7 +3123,7 @@ Want to build your own space? Each bot gets **one room** — here's how:
       const [, owner, repo] = url.pathname.match(/^\/api\/v1\/github\/repos\/([^/]+)\/([^/]+)\/tree$/);
       const userId = url.searchParams.get("userId");
       if (!userId) return json(res, 400, { success: false, error: "userId required" });
-      if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+      if (!(await validateGithubUser(userId))) return json(res, 401, { success: false, error: "Invalid session" });
       const conn = githubStore.getConnection(userId);
       if (!conn) return json(res, 401, { success: false, error: "GitHub not connected" });
       try {
@@ -3140,7 +3143,7 @@ Want to build your own space? Each bot gets **one room** — here's how:
       const filePath = url.searchParams.get("path");
       const userId = url.searchParams.get("userId");
       if (!userId || !filePath) return json(res, 400, { success: false, error: "userId and path required" });
-      if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+      if (!(await validateGithubUser(userId))) return json(res, 401, { success: false, error: "Invalid session" });
       const conn = githubStore.getConnection(userId);
       if (!conn) return json(res, 401, { success: false, error: "GitHub not connected" });
       try {
@@ -3155,10 +3158,10 @@ Want to build your own space? Each bot gets **one room** — here's how:
     if (req.method === "POST" && /^\/api\/v1\/github\/repos\/([^/]+)\/([^/]+)\/ask$/.test(url.pathname)) {
       const [, owner, repo] = url.pathname.match(/^\/api\/v1\/github\/repos\/([^/]+)\/([^/]+)\/ask$/);
       try {
-        const body = await readBody(req);
+        const body = reqBody || {};
         const { question, files, userId } = body;
         if (!question || !userId) return json(res, 400, { success: false, error: "question and userId required" });
-        if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+        if (!(await validateGithubUser(userId))) return json(res, 401, { success: false, error: "Invalid session" });
         const conn = githubStore.getConnection(userId);
         if (!conn) return json(res, 401, { success: false, error: "GitHub not connected" });
         const cached = githubStore.getRepoTreeCache(userId, owner, repo);
@@ -3191,10 +3194,10 @@ Want to build your own space? Each bot gets **one room** — here's how:
     if (req.method === "POST" && /^\/api\/v1\/github\/repos\/([^/]+)\/([^/]+)\/pr$/.test(url.pathname)) {
       const [, owner, repo] = url.pathname.match(/^\/api\/v1\/github\/repos\/([^/]+)\/([^/]+)\/pr$/);
       try {
-        const body = await readBody(req);
+        const body = reqBody || {};
         const { title, body: prBody, changes, userId } = body;
         if (!title || !userId) return json(res, 400, { success: false, error: "title and userId required" });
-        if (!validateGithubUser(userId)) return json(res, 401, { success: false, error: "Invalid session" });
+        if (!(await validateGithubUser(userId))) return json(res, 401, { success: false, error: "Invalid session" });
         const conn = githubStore.getConnection(userId);
         if (!conn) return json(res, 401, { success: false, error: "GitHub not connected" });
         // Get default branch SHA

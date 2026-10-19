@@ -118,3 +118,7 @@ Use [SECURITY.md](SECURITY.md) for vulnerabilities, leaked credentials, unsafe a
 Read [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [FORK_POLICY.md](FORK_POLICY.md) before contributing. The original project is maintained at [DevvGwardo/openclawworld](https://github.com/DevvGwardo/openclawworld); upstream-compatible fixes should be considered for upstream contribution.
 
 OpenClawWorld is distributed under the [MIT License](LICENSE). The client was originally bootstrapped from [wass08/r3f-vite-starter](https://github.com/wass08); retain attribution and verify third-party asset provenance before redistribution.
+
+### GitHub HTTP session authentication
+
+Every `/api/v1/github/*` HTTP operation requires `Authorization: Bearer <sessionToken>` for the supplied `userId`, plus an active socket for that identity. Use the session token issued privately by `roomJoined`; a public room user ID or bot API key is not proof of ownership. Missing, wrong-user and rotated tokens are rejected, including in local open-access mode. The bundled GitHub panel uses Socket.IO and already joins with this session proof, so its local workflow is unchanged. Never place session tokens in URLs.
