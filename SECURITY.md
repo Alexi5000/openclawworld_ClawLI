@@ -30,3 +30,10 @@ If a credential exposure is suspected:
 1. Revoke and rotate affected tokens/keys immediately.
 2. Remove leaked secrets from the repository and CI logs.
 3. Audit recent access where possible.
+
+## Webhook redirect policy
+
+Webhook delivery rejects redirects and non-success HTTP responses. Register the final HTTPS endpoint; redirecting to a
+new host is not supported. All bot event call sites share this delivery boundary. URL registration checks are unchanged:
+ordinary DNS hostname acceptance and connection-time address pinning still require separate review. This mitigation
+does not establish that every SSRF path is resolved.
