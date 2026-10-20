@@ -34,6 +34,8 @@ If a credential exposure is suspected:
 ## Webhook redirect policy
 
 Webhook delivery rejects redirects and non-success HTTP responses. Register the final HTTPS endpoint; redirecting to a
-new host is not supported. All bot event call sites share this delivery boundary. URL registration checks are unchanged:
-ordinary DNS hostname acceptance and connection-time address pinning still require separate review. This mitigation
-does not establish that every SSRF path is resolved.
+new host is not supported. All bot event call sites share this delivery boundary. Registration and every delivery resolve
+DNS and reject any local or special-use address. Delivery connects only to the validated address while retaining the
+original HTTPS hostname for TLS verification. Connections are not pooled; DNS changes are checked on each event.
+HTTPS on port 443 is required, embedded URL credentials are rejected, and delivery has a five-second deadline.
+IPv6 destinations must be global unicast; transition and special-use ranges are conservatively rejected.

@@ -4,6 +4,7 @@
 import fs from "fs";
 import crypto from "crypto";
 import { hashApiKey } from "./rateLimiter.js";
+import { postWebhook } from "./webhookTransport.js";
 import * as db from "./db.js";
 
 export const botRegistry = new Map();
@@ -78,21 +79,13 @@ export const sendWebhook = async (hashedKey, payload) => {
     const body = JSON.stringify(payload);
     const secret = reg.webhookSecret || hashedKey;
     const signature = crypto.createHmac("sha256", secret).update(body).digest("hex");
-    const response = await fetch(reg.webhookUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-MoltsLand-Signature": signature,
-      },
-      body,
-      signal: AbortSignal.timeout(5000),
-      redirect: "error",
+    await postWebhook(reg.webhookUrl, body, {
+      "Content-Type": "application/json",
+      "X-MoltsLand-Signature": signature,
     });
-    await response.body?.cancel();
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return true;
-  } catch (err) {
-    console.error(`[webhook] Failed for ${reg.name}: ${err.message}`);
+  } catch {
+    console.error("[webhook] Delivery failed");
     return false;
   }
 };
