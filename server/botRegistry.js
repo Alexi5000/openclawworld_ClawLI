@@ -73,25 +73,27 @@ export const setBotRoomId = (hashedKey, roomId) => {
 
 export const sendWebhook = async (hashedKey, payload) => {
   const reg = botRegistry.get(hashedKey);
-  if (!reg || !reg.webhookUrl) return;
+  if (!reg || !reg.webhookUrl) return false;
   try {
     const body = JSON.stringify(payload);
     const secret = reg.webhookSecret || hashedKey;
     const signature = crypto.createHmac("sha256", secret).update(body).digest("hex");
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    await fetch(reg.webhookUrl, {
+    const response = await fetch(reg.webhookUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-MoltsLand-Signature": signature,
       },
       body,
-      signal: controller.signal,
+      signal: AbortSignal.timeout(5000),
+      redirect: "error",
     });
-    clearTimeout(timeout);
+    await response.body?.cancel();
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return true;
   } catch (err) {
     console.error(`[webhook] Failed for ${reg.name}: ${err.message}`);
+    return false;
   }
 };
 
