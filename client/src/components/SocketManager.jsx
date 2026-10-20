@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { io } from "socket.io-client";
 import { activityEventsAtom } from "./ActivityFeed";
 import soundManager from "../audio/SoundManager";
+import { ensureUserId } from "../userId";
 
 export const socket = io(
   import.meta.env.VITE_SERVER_URL || "http://localhost:3000"
@@ -18,17 +19,6 @@ export const totalRoomsAtom = atom(0);
 export const chatMessagesAtom = atom([]);
 export const agentThoughtsAtom = atom([]);
 export const usernameAtom = atom(localStorage.getItem("clawland_username") || null);
-const ensureUserId = () => {
-  let id = localStorage.getItem("clawland_user_id");
-  if (!id) {
-    const random = globalThis.crypto?.randomUUID
-      ? globalThis.crypto.randomUUID()
-      : `u_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
-    id = random;
-    localStorage.setItem("clawland_user_id", id);
-  }
-  return id;
-};
 
 const getSessionToken = () => localStorage.getItem("clawland_session_token");
 const setSessionToken = (token) => {

@@ -13,6 +13,7 @@
  *   (default serverUrl: http://localhost:3000)
  */
 
+import { randomUUID } from "node:crypto";
 import { io } from "../../server/node_modules/socket.io-client/build/esm/index.js";
 
 const SERVER = process.argv[2] || "http://localhost:3000";
@@ -37,7 +38,7 @@ function createClient(name, isBot = false) {
       transports: ["websocket"],
       autoConnect: true,
     });
-    const userId = `test-${name}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const userId = `test-${name}-${Date.now()}-${randomUUID()}`;
     socket.once("welcome", (data) => {
       resolve({ socket, rooms: data.rooms, name, isBot, userId });
     });
