@@ -3173,17 +3173,17 @@ Want to build your own space? Each bot gets **one room** — here's how:
           githubStore.setRepoTreeCache(userId, owner, repo, treeData.tree);
           repoContext = treeData.tree.filter(f => f.type === "blob").map(f => f.path).join("\n");
         }
-        const fileContents = Object.create(null);
+        const fileContents = new Map();
         if (files && Array.isArray(files)) {
           for (const filePath of files.slice(0, 5)) {
             if (typeof filePath !== "string") continue;
             try {
               const fd = await githubService.fetchFileContent(conn.token, owner, repo, filePath);
-              fileContents[filePath] = fd.content;
+              fileContents.set(filePath, fd.content);
             } catch { /* skip unreadable files */ }
           }
         }
-        const answer = await llmBridge.askCodeQuestion({ question, repoContext, fileContents });
+        const answer = await llmBridge.askCodeQuestion({ question, repoContext, fileContents: Object.fromEntries(fileContents) });
         return json(res, 200, { success: true, answer, model: "claude-sonnet-4-20250514" });
       } catch (err) {
         return json(res, 500, { success: false, error: err.message });
