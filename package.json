@@ -8,8 +8,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test tests/repository-contract.test.mjs tests/github-http-auth.test.mjs tests/user-id-security.test.mjs tests/github-file-map.test.mjs tests/webhook-delivery.test.mjs",
-    "test:smoke": "node --test tests/repository-contract.test.mjs tests/github-http-auth.test.mjs tests/user-id-security.test.mjs tests/github-file-map.test.mjs tests/webhook-delivery.test.mjs",
+    "test": "node --test tests/repository-contract.test.mjs tests/github-http-auth.test.mjs tests/user-id-security.test.mjs tests/github-file-map.test.mjs tests/webhook-delivery.test.mjs tests/installer-security.test.mjs",
+    "test:smoke": "node --test tests/repository-contract.test.mjs tests/github-http-auth.test.mjs tests/user-id-security.test.mjs tests/github-file-map.test.mjs tests/webhook-delivery.test.mjs tests/installer-security.test.mjs",
     "check:server": "node scripts/check-server.mjs",
     "lint:landing": "npm --prefix landing-page run lint",
     "build:client": "npm --prefix client run build",
