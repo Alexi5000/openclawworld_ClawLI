@@ -1,4 +1,4 @@
-import fs from "fs";
+import { writePrivateFile } from "./private-file.js";
 import path from "path";
 import { createInterface } from "readline";
 
@@ -43,34 +43,33 @@ export default async function install(options = {}) {
   console.log("");
 
   // Step 1: Create skill directory
-  console.log("  Creating skill directory...");
-  fs.mkdirSync(SKILL_DIR, { recursive: true });
-  console.log("  Done.\n");
+  console.log("  Preparing skill installation...\n");
 
   // Step 2: Fetch skill.md
   console.log("  Fetching skill.md...");
   try {
-    const skillRes = await fetch(`${OPENCLAWWORLD_URL}/skill.md`);
+    const skillRes = await fetch(`${OPENCLAWWORLD_URL}/skill.md`, { redirect: "error" });
     if (!skillRes.ok) throw new Error(`HTTP ${skillRes.status}`);
     const skillMd = await skillRes.text();
-    fs.writeFileSync(path.join(SKILL_DIR, "SKILL.md"), skillMd, "utf8");
+    writePrivateFile(path.join(SKILL_DIR, "SKILL.md"), skillMd);
     console.log("  Saved SKILL.md\n");
   } catch (err) {
-    console.error("  Failed to fetch skill.md: " + err.message);
-    console.log("  Download manually: " + OPENCLAWWORLD_URL + "/skill.md\n");
+    console.error("  Failed to fetch or save skill.md.");
+    throw new Error("Skill installation failed");
   }
 
   // Step 3: Fetch skill.json
   console.log("  Fetching skill.json...");
   try {
-    const jsonRes = await fetch(`${OPENCLAWWORLD_URL}/skill.json`);
+    const jsonRes = await fetch(`${OPENCLAWWORLD_URL}/skill.json`, { redirect: "error" });
     if (!jsonRes.ok) throw new Error(`HTTP ${jsonRes.status}`);
     const skillJson = await jsonRes.text();
-    fs.writeFileSync(path.join(SKILL_DIR, "package.json"), skillJson, "utf8");
+    JSON.parse(skillJson);
+    writePrivateFile(path.join(SKILL_DIR, "package.json"), skillJson);
     console.log("  Saved package.json\n");
   } catch (err) {
-    console.error("  Failed to fetch skill.json: " + err.message);
-    console.log("  Download manually: " + OPENCLAWWORLD_URL + "/skill.json\n");
+    console.error("  Failed to fetch, validate or save skill.json.");
+    throw new Error("Skill metadata installation failed");
   }
 
   // Step 4 (optional): Register bot
@@ -98,17 +97,19 @@ export default async function install(options = {}) {
   try {
     const registerRes = await fetch(`${OPENCLAWWORLD_URL}/api/v1/bots/register`, {
       method: "POST",
+      redirect: "error",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: botName }),
     });
     if (!registerRes.ok) {
-      const errData = await registerRes.json().catch(() => null);
-      throw new Error(errData?.error || `HTTP ${registerRes.status}`);
+      throw new Error(`HTTP ${registerRes.status}`);
     }
     const data = await registerRes.json();
 
     // Step 5: Save credentials
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    if (typeof data.bot?.api_key !== "string" || !data.bot.api_key.trim()) {
+      throw new Error("Registration did not return an API key");
+    }
     const creds = {
       api_key: data.bot?.api_key,
       name: botName,
@@ -116,21 +117,17 @@ export default async function install(options = {}) {
       status: data.bot?.status || "verified",
       registered_at: new Date().toISOString(),
     };
-    fs.writeFileSync(
-      path.join(CONFIG_DIR, "credentials.json"),
-      JSON.stringify(creds, null, 2),
-      "utf8"
-    );
+    writePrivateFile(path.join(CONFIG_DIR, "credentials.json"), JSON.stringify(creds, null, 2));
 
     console.log("  Registered!\n");
     console.log("  Credentials");
     console.log("  -----------");
-    console.log("  API key:  " + data.bot?.api_key);
+    console.log("  API key saved privately in the config file.");
     console.log("  Config:   " + path.join(CONFIG_DIR, "credentials.json"));
-    console.log("  Status:   " + (data.bot?.status || "verified"));
+    console.log("  Registration response saved in the private config file.");
   } catch (err) {
-    console.error("  Registration failed: " + err.message);
-    console.log("  Register manually at: " + OPENCLAWWORLD_URL);
+    console.error("  Registration failed; check the server and private config directory.");
+    throw new Error("Bot registration failed");
   }
 
   console.log("\n  ✅ INSTALLATION COMPLETE");
